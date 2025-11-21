@@ -21,9 +21,10 @@ exports.setupSocket = (server) => {
         dashboardLink: "/new-call/search?caller=+919876543210", 
         ticket: "No open tickets"
       });
-    }, 30000);
+    }, 10000);
   });
 };
 
 exports.io = () => ioInstance;
+
 
