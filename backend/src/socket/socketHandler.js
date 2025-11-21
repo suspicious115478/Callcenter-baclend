@@ -15,10 +15,15 @@ exports.setupSocket = (server) => {
     setInterval(() => {
       socket.emit("incoming-call", {
         caller: "+919876543210",
-        name: "John Doe"
+        name: "John Doe (TEST)",
+        // Add the required fields for frontend testing
+        subscriptionStatus: "None", 
+        dashboardLink: "/new-call/search?caller=+919876543210", 
+        ticket: "No open tickets"
       });
     }, 30000);
   });
 };
 
 exports.io = () => ioInstance;
+
