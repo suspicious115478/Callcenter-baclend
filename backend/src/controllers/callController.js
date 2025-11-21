@@ -25,7 +25,7 @@ const serviceAccount = {
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   // 🔴 IMPORTANT: You MUST set your Realtime Database URL here!
-  databaseURL: "https://[YOUR-PROJECT-ID]-default-rtdb.firebaseio.com" 
+  databaseURL: "https://call-subscription-default-rtdb.firebaseio.com/" 
 });
 
 // 🟢 Use admin.database() for Realtime Database
@@ -110,3 +110,4 @@ exports.getIncomingCall = async (req, res) => {
         redirect: callData.dashboardLink
     });
 };
+
