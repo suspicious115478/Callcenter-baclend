@@ -4,8 +4,7 @@ const admin = require('firebase-admin');
 const { io } = require("../socket/socketHandler");
 
 // ----------------------------------------------------------------------
-// 🚨 IMPORTANT: FIREBASE INITIALIZATION 🚨
-// This initializes the Firebase Admin SDK using the service account key you provided.
+// 🚨 IMPORTANT: FIREBASE INITIALIZATION FOR REALTIME DATABASE 🚨
 // ----------------------------------------------------------------------
 
 const serviceAccount = {
@@ -24,25 +23,31 @@ const serviceAccount = {
 };
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccount),
+  // 🔴 IMPORTANT: You MUST set your Realtime Database URL here!
+  databaseURL: "https://[YOUR-PROJECT-ID]-default-rtdb.firebaseio.com" 
 });
 
-const db = admin.firestore();
+// 🟢 Use admin.database() for Realtime Database
+const db = admin.database();
 // ----------------------------------------------------------------------
 
 /**
- * Checks the subscription status of a phone number from the Firebase Firestore.
- * Queries the 'isActive' collection using the phone number as the Document ID.
+ * Checks the subscription status of a phone number from the Firebase Realtime Database.
+ * Assumes RTDB structure: /isActive/{phoneNumber_without_plus_sign}
  * @param {string} phoneNumber - The incoming caller's phone number (e.g., "+91XXXXXXXXXX").
  */
 const checkSubscriptionStatus = async (phoneNumber) => {
     try {
-        // Query the 'isActive' collection using the phone number as the Document ID
-        const activeDoc = await db.collection('isActive').doc(phoneNumber).get(); 
+        // 🟢 FIX: Normalize the phone number (remove '+' to match your RTDB node key format)
+        const dbPhoneNumber = phoneNumber.replace('+', ''); 
 
-        if (activeDoc.exists) {
+        // 🟢 RTDB QUERY: Reference the specific node in RTDB: /isActive/{normalizedNumber}
+        const snapshot = await db.ref('isActive').child(dbPhoneNumber).once('value');
+
+        if (snapshot.exists()) {
             // Subscription is active/verified
-            const data = activeDoc.data() || {};
+            const data = snapshot.val() || {};
             
             return {
                 hasActiveSubscription: true,
@@ -51,10 +56,10 @@ const checkSubscriptionStatus = async (phoneNumber) => {
                 dashboardLink: `/user/dashboard/${phoneNumber}`, // Redirect to user dashboard
                 ticket: data.lastActiveTicket || "Active Subscription"
             };
-        }
+        } 
+        
     } catch (error) {
-        console.error("Firebase subscription check failed:", error.message);
-        // Fallback for database error
+        console.error("RTDB subscription check failed:", error.message);
     }
 
     // Default for new, unregistered, or inactive callers
@@ -72,8 +77,7 @@ const checkSubscriptionStatus = async (phoneNumber) => {
  * This function will be called by your Voice Provider (Twilio/Vonage/etc.).
  */
 exports.getIncomingCall = async (req, res) => {
-    // 1. Get the incoming call number (Adjust 'req.body.From' based on your Voice Provider's webhook payload)
-    // Using a fallback number for testing as requested
+    // 1. Get the incoming call number 
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
   
     // 2. Check the subscription status from Firebase
@@ -100,12 +104,9 @@ exports.getIncomingCall = async (req, res) => {
     }
 
     // 4. Send response back to the Voice Provider
-    // The response is kept minimal as the main logic is handled by Socket.IO
     res.status(200).json({
         message: "Call processed, agent notified.",
         status: callData.subscriptionStatus,
         redirect: callData.dashboardLink
     });
 };
-
-
