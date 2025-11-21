@@ -1,7 +1,7 @@
 // callController.js
 
 const admin = require('firebase-admin');
-const { io } = require("../socketHandler");
+const { io } = require("../socket/socketHandler");
 
 // ----------------------------------------------------------------------
 // 🚨 IMPORTANT: FIREBASE INITIALIZATION 🚨
@@ -107,4 +107,5 @@ exports.getIncomingCall = async (req, res) => {
         redirect: callData.dashboardLink
     });
 };
+
 
