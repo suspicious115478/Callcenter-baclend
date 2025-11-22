@@ -19,7 +19,7 @@ exports.setupSocket = (server) => {
     setInterval(async () => {
       // 🟢 FIX: Define the test number in international format.
       // This ensures the normalization logic in callController.js is correctly tested.
-      const testNumber = "1234567890"; 
+      const testNumber = "1234567891"; 
       
       const callData = await callController.checkSubscriptionStatus(testNumber);
       
@@ -38,4 +38,5 @@ exports.setupSocket = (server) => {
 };
 
 exports.io = () => ioInstance;
+
 
