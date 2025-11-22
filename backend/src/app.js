@@ -9,8 +9,9 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-app.use("/agent", agentRoutes);
-app.use("/call", callRoutes);
-app.use("/webrtc", webrtcRoutes);
+app.use("/api/agent", agentRoutes);
+app.use("/api/calls", callRoutes);
+app.use("/api/webrtc", webrtcRoutes);
 
 module.exports = app;
+
