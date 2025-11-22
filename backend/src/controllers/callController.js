@@ -1,6 +1,5 @@
 // callController.js
 
-// 🚨 NEW IMPORTS: Supabase client
 const { createClient } = require('@supabase/supabase-js');
 // NOTE: All Firebase Admin imports and initialization have been removed.
 
@@ -19,24 +18,22 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /**
- * Helper function for handling inactive/emergency redirection.
+ * Helper function for handling inactive/non-existent users.
+ * 🚨 FIX: Redirects to the NewCallSearchPage route.
  */
 const handleInactive = (dbPhoneNumber, name) => ({
     hasActiveSubscription: false,
     userName: name,
-    subscriptionStatus: "Inactive",
-    // 🚨 NEW REDIRECTION: Emergency Services Only Page
-    dashboardLink: `/emergency-services-only?caller=${dbPhoneNumber}`, 
-    ticket: "Emergency Services Only"
+    // Status set to "None" to match the original logic for the NewCallSearchPage
+    subscriptionStatus: "None", 
+    // 🚨 FIX: Corrected Redirection to the existing NewCallSearchPage route
+    dashboardLink: `/new-call/search?caller=${dbPhoneNumber}`, 
+    ticket: "New Call - Search Required"
 });
 
 
 /**
  * Checks the subscription status of a phone number from the Supabase 'User' table.
- * This function is exported for use in the socketHandler for testing.
- * * Logic: 
- * - If plan_status is 'active', redirect to dashboard.
- * - Otherwise (inactive, expired, not found, or error), redirect to emergency page.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     // Normalize the phone number (remove '+' for the Supabase query)
@@ -44,15 +41,15 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 
     try {
         // Query the 'User' table
+        // NOTE: If you still get a 404/no call found, double-check that the column name in Supabase is truly 'phone' and not 'phone_number'.
         const { data: users, error } = await supabase
             .from('User')
-            .select('plan_status, name') 
-            .eq('phone', dbPhoneNumber) // ASSUMPTION: Supabase column is 'phone_number'
+            .select('plan_status, name') 
+            .eq('phone', dbPhoneNumber)
             .limit(1);
 
         if (error) {
             console.error("Supabase query error:", error.message);
-            // Return inactive status on DB error
             return handleInactive(dbPhoneNumber, "DB Error");
         }
 
@@ -63,13 +60,13 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
             return {
                 hasActiveSubscription: true,
                 userName: user.name || "Active Subscriber",
-                subscriptionStatus: "Active", // Status updated to 'Active'
-                dashboardLink: `/user/dashboard/${dbPhoneNumber}`, // Redirect to User Dashboard
+                subscriptionStatus: "Verified", // Status set to 'Verified' for active users
+                dashboardLink: `/user/dashboard/${dbPhoneNumber}`, // Redirect to UserDashboardPage
                 ticket: "Active Plan Call"
             };
         }
 
-        // 2. Default: User Not Found or Plan is INACTIVE/Expired
+        // 2. Default: User Not Found or Plan is INACTIVE/Expired -> Redirect to Search Page
         return handleInactive(dbPhoneNumber, user ? user.name : "Unrecognized Caller");
         
     } catch (e) {
@@ -80,11 +77,9 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 
 
 /**
- * Main handler for the incoming call webhook.
- * 🚨 CRITICAL FIX 2: This function accepts the io getter as an argument and returns the Express handler.
+ * Main handler for the incoming call webhook (remains unchanged).
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
-    // This function remains the main webhook handler, using the exported checker
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
   
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
@@ -98,7 +93,6 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         isExistingUser: userData.hasActiveSubscription
     };
     
-    // 🚨 CRITICAL FIX 3: Get the instance using the injected getter function
     const ioInstance = ioInstanceGetter();
     if (ioInstance) {
         console.log(`[VERIFY DEBUG] Status: ${callData.subscriptionStatus}. Redirecting to: ${callData.dashboardLink}`);
