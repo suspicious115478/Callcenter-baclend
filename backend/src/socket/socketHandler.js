@@ -8,7 +8,7 @@ let ioInstance;
 
 exports.setupSocket = (server) => {
   const io = new Server(server, {
-    cors: { origin: "*" }
+    cors: { origin: "https://callcenter-frontend-o9od.onrender.com" }
   });
 
   ioInstance = io;
@@ -40,4 +40,5 @@ exports.setupSocket = (server) => {
 };
 
 exports.io = () => ioInstance;
+
 
