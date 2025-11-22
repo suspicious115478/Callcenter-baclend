@@ -7,7 +7,6 @@ const { createClient } = require('@supabase/supabase-js');
 // SUPABASE INITIALIZATION
 // ----------------------------------------------------------------------
 
-// Ensure these environment variables are set on your Render Backend Service
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
 
@@ -19,13 +18,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /**
  * Helper function for handling inactive/non-existent users.
- * Redirects to the NewCallSearchPage route.
  */
 const handleInactive = (dbPhoneNumber, name) => ({
     hasActiveSubscription: false,
     userName: name,
     subscriptionStatus: "None", 
-    // Redirects to the existing NewCallSearchPage route
     dashboardLink: `/new-call/search?caller=${dbPhoneNumber}`, 
     ticket: "New Call - Search Required"
 });
@@ -35,22 +32,23 @@ const handleInactive = (dbPhoneNumber, name) => ({
  * Checks the subscription status of a phone number from the Supabase 'User' table.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
-    // 🚨 CRITICAL FIX 1: Normalize the phone number format to match EXACTLY what is in your Supabase 'phone' column.
-    // Assuming your Supabase phone numbers DO NOT have a leading '+', we remove it.
-    const dbPhoneNumber = phoneNumber.replace('+', ''); 
+    
+    // 🚨 FINAL FIX: Normalization to 10-digit format to match the DB exactly.
+    // 1. Strip all non-digit characters (e.g., '+919876543210' -> '919876543210').
+    const rawPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
     
-    // If your Supabase table stores the '+' (e.g., '+919876543210'), then change the line above to:
-    // const dbPhoneNumber = phoneNumber; 
-    
-    // Log the number being queried for debug purposes
+    // 2. Extract the last 10 digits to query against the DB (e.g., '919876543210' -> '9876543210').
+    // This handles both the full international format and the 10-digit test number.
+    let dbPhoneNumber = rawPhoneNumber.slice(-10);
+
     console.log(`[SUPABASE QUERY] Checking for phone: ${dbPhoneNumber}`);
 
     try {
-        // Query the 'User' table: Check if the number in the 'phone' column has a plan_status of 'active'.
+        // Query the 'User' table
         const { data: users, error } = await supabase
             .from('User')
             .select('plan_status, name') 
-            .eq('phone', dbPhoneNumber) // Column name 'phone'
+            .eq('phone', dbPhoneNumber) // Now queries for the 10-digit number '9876543210'
             .limit(1);
 
         if (error) {
@@ -60,8 +58,8 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 
         const user = users ? users[0] : null;
 
-        // Check 1: User Found AND Plan is 'active'
-        if (user && user.plan_status === 'active') {
+        // Plan Status Check (Case-insensitive, confirmed 'active' is the value)
+        if (user && user.plan_status && user.plan_status.toLowerCase() === 'active') {
             return {
                 hasActiveSubscription: true,
                 userName: user.name || "Active Subscriber",
@@ -71,8 +69,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
             };
         }
 
-        // Check 2: User Not Found OR Plan is 'inactive' (or any other status)
-        // If user is found but status is not 'active', we treat it as inactive (redirect to search).
+        // Default: Not Found or Inactive
         return handleInactive(dbPhoneNumber, user ? user.name : "Unrecognized Caller");
         
     } catch (e) {
@@ -82,6 +79,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 };
 
 
+// ... (getIncomingCall function unchanged) ...
 /**
  * Main handler for the incoming call webhook (remains unchanged).
  */
@@ -113,3 +111,4 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         redirect: callData.dashboardLink
     });
 };
+
