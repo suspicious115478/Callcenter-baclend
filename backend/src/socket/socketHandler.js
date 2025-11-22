@@ -2,7 +2,7 @@
 
 const { Server } = require("socket.io");
 // 🚨 NEW IMPORT: Get the verification logic
-const { checkSubscriptionStatus } = require("./controllers/callController");
+const { checkSubscriptionStatus } = require("../controllers/callController");
 
 let ioInstance;
 
@@ -40,3 +40,4 @@ exports.setupSocket = (server) => {
 };
 
 exports.io = () => ioInstance;
+
