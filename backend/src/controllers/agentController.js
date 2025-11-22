@@ -1,5 +1,3 @@
-// agentController.js (UPDATED with extensive logging)
-
 let agentStatus = "offline";
 console.log(`[STATUS INIT] Initial agentStatus is: ${agentStatus}`);
 
@@ -23,8 +21,9 @@ exports.setStatus = (req, res) => {
   return res.status(400).json({ success: false, message: "Invalid status" });
 };
 
-// 🚨 Function for other controllers (like callController) to read the status directly
+// 🚨 MANDATORY: Function for callController to read the status directly
 exports.getRawStatus = () => {
+    // This logs every time the call controller asks for the status
     console.log(`[STATUS READ] callController is reading agentStatus: ${agentStatus}`);
     return agentStatus; 
 };
