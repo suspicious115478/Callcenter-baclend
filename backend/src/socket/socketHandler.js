@@ -1,30 +1,21 @@
+// sockethandler.js
+
 const { Server } = require("socket.io");
 
 let ioInstance;
 
 exports.setupSocket = (server) => {
-  const io = new Server(server, {
-    cors: { origin: "*" }
-  });
+  const io = new Server(server, {
+    cors: { origin: "*" }
+  });
 
-  ioInstance = io;
+  ioInstance = io;
 
-  io.on("connection", (socket) => {
-    console.log("Agent connected:", socket.id);
-
-    setInterval(() => {
-      socket.emit("incoming-call", {
-        caller: "+919876543210",
-        name: "John Doe (TEST)",
-        // Add the required fields for frontend testing
-        subscriptionStatus: "None", 
-        dashboardLink: "/new-call/search?caller=+919876543210", 
-        ticket: "No open tickets"
-      });
-    }, 10000);
-  });
+  io.on("connection", (socket) => {
+    console.log("Agent connected:", socket.id);
+    // 🚨 REMOVED: The setInterval loop that was sending dummy calls.
+    // Calls will now ONLY be emitted from the callController webhook.
+  });
 };
 
 exports.io = () => ioInstance;
-
-
