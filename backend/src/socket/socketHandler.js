@@ -21,7 +21,7 @@ exports.setupSocket = (server) => {
     // 🚨 TEMPORARY TESTING LOOP 🚨
     setInterval(async () => {
       // Define the test number you want to check (verified or unverified)
-      const testNumber = "+919876543210"; 
+      const testNumber = "9876543210"; 
       
       // 🚨 CRITICAL FIX 2: Access the function via the module object
       const callData = await callController.checkSubscriptionStatus(testNumber);
@@ -42,3 +42,4 @@ exports.setupSocket = (server) => {
 };
 
 exports.io = () => ioInstance;
+
