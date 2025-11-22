@@ -31,24 +31,23 @@ const handleInactive = (dbPhoneNumber, name) => ({
 /**
  * Checks the subscription status of a phone number from the Supabase 'User' table.
  */
+/**
+ * Checks the subscription status of a phone number from the Supabase 'User' table.
+ */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     
-    // 🚨 FINAL FIX: Normalization to 10-digit format to match the DB exactly.
-    // 1. Strip all non-digit characters (e.g., '+919876543210' -> '919876543210').
-    const rawPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    
-    // 2. Extract the last 10 digits to query against the DB (e.g., '919876543210' -> '9876543210').
-    // This handles both the full international format and the 10-digit test number.
-    let dbPhoneNumber = rawPhoneNumber.slice(-10);
+    // Normalization to 10-digit format (e.g., '+911234567890' -> '1234567890')
+    const rawPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+    let dbPhoneNumber = rawPhoneNumber.slice(-10);
 
-    console.log(`[SUPABASE QUERY] Checking for phone: ${dbPhoneNumber}`);
+    console.log(`[QUERY 1/4] Checking for phone: ${dbPhoneNumber}`);
 
     try {
         // Query the 'User' table
         const { data: users, error } = await supabase
             .from('User')
             .select('plan_status, name') 
-            .eq('phone', dbPhoneNumber) // Now queries for the 10-digit number '9876543210'
+            .eq('phone', dbPhoneNumber) // Queries for the 10-digit number
             .limit(1);
 
         if (error) {
@@ -56,15 +55,26 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
             return handleInactive(dbPhoneNumber, "DB Error");
         }
 
+        // 🚨 NEW DETAILED LOGGING 🚨
+        console.log(`[QUERY 2/4] Raw Supabase Data Received:`, users); 
+
         const user = users ? users[0] : null;
 
-        // Plan Status Check (Case-insensitive, confirmed 'active' is the value)
+        // Check 3/4: Did we find a user?
+        if (!user) {
+            console.log(`[QUERY 3/4] RESULT: User NOT Found for ${dbPhoneNumber}.`);
+        } else {
+            console.log(`[QUERY 3/4] RESULT: User found! Plan Status is '${user.plan_status}'.`);
+        }
+
+
+        // Plan Status Check (Case-insensitive)
         if (user && user.plan_status && user.plan_status.toLowerCase() === 'active') {
             return {
                 hasActiveSubscription: true,
                 userName: user.name || "Active Subscriber",
-                subscriptionStatus: "Verified", // Redirects to UserDashboardPage
-                dashboardLink: `/user/dashboard/${dbPhoneNumber}`, 
+                subscriptionStatus: "Verified",
+                dashboardLink: `/user/dashboard/${dbPhoneNumber}`, 
                 ticket: "Active Plan Call"
             };
         }
@@ -111,4 +121,5 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         redirect: callData.dashboardLink
     });
 };
+
 
