@@ -19,14 +19,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /**
  * Helper function for handling inactive/non-existent users.
- * 🚨 FIX: Redirects to the NewCallSearchPage route.
+ * Redirects to the NewCallSearchPage route.
  */
 const handleInactive = (dbPhoneNumber, name) => ({
     hasActiveSubscription: false,
     userName: name,
-    // Status set to "None" to match the original logic for the NewCallSearchPage
     subscriptionStatus: "None", 
-    // 🚨 FIX: Corrected Redirection to the existing NewCallSearchPage route
+    // Redirects to the existing NewCallSearchPage route
     dashboardLink: `/new-call/search?caller=${dbPhoneNumber}`, 
     ticket: "New Call - Search Required"
 });
@@ -36,16 +35,22 @@ const handleInactive = (dbPhoneNumber, name) => ({
  * Checks the subscription status of a phone number from the Supabase 'User' table.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
-    // Normalize the phone number (remove '+' for the Supabase query)
+    // 🚨 CRITICAL FIX 1: Normalize the phone number format to match EXACTLY what is in your Supabase 'phone' column.
+    // Assuming your Supabase phone numbers DO NOT have a leading '+', we remove it.
     const dbPhoneNumber = phoneNumber.replace('+', ''); 
+    
+    // If your Supabase table stores the '+' (e.g., '+919876543210'), then change the line above to:
+    // const dbPhoneNumber = phoneNumber; 
+    
+    // Log the number being queried for debug purposes
+    console.log(`[SUPABASE QUERY] Checking for phone: ${dbPhoneNumber}`);
 
     try {
-        // Query the 'User' table
-        // NOTE: If you still get a 404/no call found, double-check that the column name in Supabase is truly 'phone' and not 'phone_number'.
+        // Query the 'User' table: Check if the number in the 'phone' column has a plan_status of 'active'.
         const { data: users, error } = await supabase
             .from('User')
             .select('plan_status, name') 
-            .eq('phone', dbPhoneNumber)
+            .eq('phone', dbPhoneNumber) // Column name 'phone'
             .limit(1);
 
         if (error) {
@@ -55,18 +60,19 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 
         const user = users ? users[0] : null;
 
-        // 1. User Found and Plan is ACTIVE
+        // Check 1: User Found AND Plan is 'active'
         if (user && user.plan_status === 'active') {
             return {
                 hasActiveSubscription: true,
                 userName: user.name || "Active Subscriber",
-                subscriptionStatus: "Verified", // Status set to 'Verified' for active users
-                dashboardLink: `/user/dashboard/${dbPhoneNumber}`, // Redirect to UserDashboardPage
+                subscriptionStatus: "Verified", // Redirects to UserDashboardPage
+                dashboardLink: `/user/dashboard/${dbPhoneNumber}`, 
                 ticket: "Active Plan Call"
             };
         }
 
-        // 2. Default: User Not Found or Plan is INACTIVE/Expired -> Redirect to Search Page
+        // Check 2: User Not Found OR Plan is 'inactive' (or any other status)
+        // If user is found but status is not 'active', we treat it as inactive (redirect to search).
         return handleInactive(dbPhoneNumber, user ? user.name : "Unrecognized Caller");
         
     } catch (e) {
