@@ -1,71 +1,87 @@
 // callController.js
 
-const admin = require('firebase-admin');
-// 🚨 CRITICAL FIX 1: REMOVE the direct import of the socket handler to break the circular dependency.
-// const { io } = require("../socket/socketHandler"); 
+// 🚨 NEW IMPORTS: Supabase client
+const { createClient } = require('@supabase/supabase-js');
+// NOTE: All Firebase Admin imports and initialization have been removed.
 
 // ----------------------------------------------------------------------
-// FIREBASE INITIALIZATION 
+// SUPABASE INITIALIZATION
 // ----------------------------------------------------------------------
 
-let serviceAccount;
-try {
-    if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-        throw new Error("FIREBASE_SERVICE_ACCOUNT environment variable is not set.");
-    }
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-} catch (e) {
-    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT:", e.message);
-    throw new Error("Firebase initialization failed due to credential error.");
+// Ensure these environment variables are set on your Render Backend Service
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error("Missing Supabase credentials in environment variables.");
 }
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://call-subscription-default-rtdb.firebaseio.com/" 
-});
-
-const db = admin.database();
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /**
- * Checks the subscription status of a phone number from the Firebase Realtime Database.
+ * Helper function for handling inactive/emergency redirection.
+ */
+const handleInactive = (dbPhoneNumber, name) => ({
+    hasActiveSubscription: false,
+    userName: name,
+    subscriptionStatus: "Inactive",
+    // 🚨 NEW REDIRECTION: Emergency Services Only Page
+    dashboardLink: `/emergency-services-only?caller=${dbPhoneNumber}`, 
+    ticket: "Emergency Services Only"
+});
+
+
+/**
+ * Checks the subscription status of a phone number from the Supabase 'User' table.
  * This function is exported for use in the socketHandler for testing.
+ * * Logic: 
+ * - If plan_status is 'active', redirect to dashboard.
+ * - Otherwise (inactive, expired, not found, or error), redirect to emergency page.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
-    // Normalize the phone number
+    // Normalize the phone number (remove '+' for the Supabase query)
     const dbPhoneNumber = phoneNumber.replace('+', ''); 
 
     try {
-        const snapshot = await db.ref('isActive').child(dbPhoneNumber).once('value');
+        // Query the 'User' table
+        const { data: users, error } = await supabase
+            .from('User')
+            .select('plan_status, name') 
+            .eq('phone', dbPhoneNumber) // ASSUMPTION: Supabase column is 'phone_number'
+            .limit(1);
 
-        if (snapshot.exists()) {
-            const data = snapshot.val() || {};
-            
+        if (error) {
+            console.error("Supabase query error:", error.message);
+            // Return inactive status on DB error
+            return handleInactive(dbPhoneNumber, "DB Error");
+        }
+
+        const user = users ? users[0] : null;
+
+        // 1. User Found and Plan is ACTIVE
+        if (user && user.plan_status === 'active') {
             return {
                 hasActiveSubscription: true,
-                userName: data.name || "Verified Subscriber",
-                subscriptionStatus: "Verified",
-                dashboardLink: `/user/dashboard/${dbPhoneNumber}`,
-                ticket: data.lastActiveTicket || "Active Subscription"
+                userName: user.name || "Active Subscriber",
+                subscriptionStatus: "Active", // Status updated to 'Active'
+                dashboardLink: `/user/dashboard/${dbPhoneNumber}`, // Redirect to User Dashboard
+                ticket: "Active Plan Call"
             };
-        } 
-        
-    } catch (error) {
-        console.error("RTDB subscription check failed:", error.message);
-    }
+        }
 
-    // Default for new, unregistered, or inactive callers
-    return {
-        hasActiveSubscription: false,
-        userName: "New/Non-Subscriber",
-        subscriptionStatus: "None",
-        dashboardLink: `/new-call/search?caller=${dbPhoneNumber}`, 
-        ticket: "New Call - No Ticket"
-    };
+        // 2. Default: User Not Found or Plan is INACTIVE/Expired
+        return handleInactive(dbPhoneNumber, user ? user.name : "Unrecognized Caller");
+        
+    } catch (e) {
+        console.error("Supabase lookup exception:", e.message);
+        return handleInactive(dbPhoneNumber, "System Error");
+    }
 };
+
 
 /**
  * Main handler for the incoming call webhook.
- * 🚨 CRITICAL FIX 2: This function now accepts the io getter as an argument and returns the Express handler.
+ * 🚨 CRITICAL FIX 2: This function accepts the io getter as an argument and returns the Express handler.
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     // This function remains the main webhook handler, using the exported checker
@@ -88,8 +104,8 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         console.log(`[VERIFY DEBUG] Status: ${callData.subscriptionStatus}. Redirecting to: ${callData.dashboardLink}`);
         ioInstance.emit("incoming-call", callData);
     } else {
-        console.warn("Socket.IO instance not available via getter.");
-    }
+        console.warn("Socket.IO instance not available via getter.");
+    }
     
     res.status(200).json({
         message: "Call processed, agent notified.",
