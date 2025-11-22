@@ -1,11 +1,11 @@
 // callController.js
 
 const admin = require('firebase-admin');
-const { io } = require("../socket/socketHandler");
+// 🚨 CRITICAL FIX 1: REMOVE the direct import of the socket handler to break the circular dependency.
+// const { io } = require("../socket/socketHandler"); 
 
 // ----------------------------------------------------------------------
-// FIREBASE INITIALIZATION 
-// (Assume environment variable setup from previous steps is correct)
+// FIREBASE INITIALIZATION 
 // ----------------------------------------------------------------------
 
 let serviceAccount;
@@ -28,7 +28,7 @@ const db = admin.database();
 
 /**
  * Checks the subscription status of a phone number from the Firebase Realtime Database.
- * 🚨 CHANGE: Export this function so socketHandler can use it.
+ * This function is exported for use in the socketHandler for testing.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     // Normalize the phone number
@@ -65,16 +65,14 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 
 /**
  * Main handler for the incoming call webhook.
+ * 🚨 CRITICAL FIX 2: This function now accepts the io getter as an argument and returns the Express handler.
  */
-exports.getIncomingCall = async (req, res) => {
+exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     // This function remains the main webhook handler, using the exported checker
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
   
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
   
-    // ... (rest of the logic, including the socket emit, remains the same) ...
-    // Note: Use userData.dashboardLink in your socket emit.
-    
     const callData = {
         caller: incomingNumber,
         name: userData.userName,
@@ -83,17 +81,19 @@ exports.getIncomingCall = async (req, res) => {
         ticket: userData.ticket,
         isExistingUser: userData.hasActiveSubscription
     };
-    
-    // ... rest of the socket emit and res.json ...
-    const ioInstance = io();
-    if (ioInstance) {
-        console.log(`[VERIFY DEBUG] Status: ${callData.subscriptionStatus}. Redirecting to: ${callData.dashboardLink}`);
-        ioInstance.emit("incoming-call", callData);
+    
+    // 🚨 CRITICAL FIX 3: Get the instance using the injected getter function
+    const ioInstance = ioInstanceGetter();
+    if (ioInstance) {
+        console.log(`[VERIFY DEBUG] Status: ${callData.subscriptionStatus}. Redirecting to: ${callData.dashboardLink}`);
+        ioInstance.emit("incoming-call", callData);
+    } else {
+        console.warn("Socket.IO instance not available via getter.");
     }
-    
-    res.status(200).json({
-        message: "Call processed, agent notified.",
-        status: callData.subscriptionStatus,
-        redirect: callData.dashboardLink
-    });
+    
+    res.status(200).json({
+        message: "Call processed, agent notified.",
+        status: callData.subscriptionStatus,
+        redirect: callData.dashboardLink
+    });
 };
