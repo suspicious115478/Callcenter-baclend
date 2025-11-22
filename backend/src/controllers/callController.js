@@ -7,21 +7,20 @@ const { io } = require("../socket/socketHandler");
 // 🚨 IMPORTANT: FIREBASE INITIALIZATION FOR REALTIME DATABASE 🚨
 // ----------------------------------------------------------------------
 
-const serviceAccount = {
-  "type": "service_account",
-  "project_id": "call-subscription",
-  "private_key_id": "d5cdf006197807e2069fe36cc26154082ba6a1c2",
-  // The private key is truncated here for display but the full key is used internally.
-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDhODHT4Xmwe4z/\nirQgBSw6FTpMyAkLQhGFTwez4/BOKgsRJXENRfSg9gxVzO8n61CjblVcTTWWNBed\nI+WoQ/Lwh2dedNNXVi+wvb5FRiotqBuGJiPuhuaETi1HXfOeswCzOmDCafaOhxmd\nULDN4A7XO8tX5AtxltimVVVkv0GbV4sQ10fq+Sf82DuXM8TE4QzwVGx8V9sgqOjm\nJrLOr/gHRZbMiWABZ6q0xPoeoEV8AZOzGnYWq36jmfpO5veo5gBAD7gLwSXFKfoT\n5UM2/SyuObXfqRcz1XSJScyrKe9jQNKT8MHeHwZJYtejkCp3Do2gJxr9f01gXMSo\nxxh43yFBAgMBAAECggEALAvCau6wztwK4jstKQn58U4Pfc6tPh9or8qZ9guBBrhg\nO7U32+Gviv8zwF/48bSqq5u7Y/bRoROE/r1zf6nyTCofBDES2ATKBOXG3WNwgkdb\nQqwY4OBPGtbzMf7k00esvmCPZdY1WwB++O479bd5D4zpIsI9nrRioH0V20MwQIHL\naQnqFW6GoxkjbEEe1Rwgw0EiU5B05YF2oMFcogwMeNOyDJJVfkHNc8NJgLcVwTyo\n+q1TiTnIMPDzEirFElnAOIBWGDZYcoWiKIjkeCNZhPs4ciNrMmF8RYzT3p2mGvGO\nNJdRBIqiM85SuxkYi/Pvv7/kbpKHjSUBnRGpA1ZPsQKBgQD9ci/5BO+ZqwB87xtn\ndDbC3PBdWd+ZGMYt56aWi3KA6RuoKJnhlahN7I/mWT6D5V6zhfRbAGiErs45svku\nDic90Yk766sv9GvAJSmMIT30YRlHveP8SfzXgaLrzaYay/gHom+lqrBPjI6pKG3E\n4YBKJNXie+A0mQCuWR+DQmkZdQKBgQDjfTEF2UMZH3RENh2dpSJAqR0znLtR1KBl\nV/Ec0FGwJQLoEFLrpN2gx8sIYtdKa5XJ609oHRYRVKpvttYYHid4EMI7zL9m6Gj3\nRxhKycV/mZcfv7Pw9ATckJaIHUKK79p/Co+E0yW3RKNQ07NAZILdXRWn/S2a5HhL\nZi3iAsNjHQKBgDCFov+W3VRbM723fVSiIDXQXMhSg4dpAdAaEH+z9NkPR/c6xrM0\nlsNMbgRYw6o2yJmwJKcjfd8hJGRRinkxxnuEWTS6msyUi+h+dOTaHGVkDZX5meNc\nOub7b7ibZ5irwjGb/KoH8rdYHpvuHI3b6lbHlJdGxhbr0ACRGYJkvYBdAoGBAMoo\nE2tuIdlugUSojnLsL18kqaWW70ON3yeQGd0QJreQfF+7OeTcMnNReNSv+T/SEV9J\nc9xClLy772WtJd5y1YI16lV34tNRTw4HqMe1PIPi+lAlbIOAZd2Xw52b2ulasmFZ\nAib3+Dk/jp4iMtXTPBP5R2hsbZ2K0He4iqeg6v7lAoGBAONUtTWuCmfhOFvylwUW\nHatd5Ye9hp262YfhOSsyp1y4ZlcSrbJBCBWBmHlQRvlj0auNaUHn7BKP5hjAmssm\ndPJDG9kccVnmXuxw77rA/4djcb+fmMjd0ocSlS8Bt6azzYhyfNrqRab1eiW9ZwZS\n3+cOt89wPH9c822co3P0TJJoi\n-----END PRIVATE KEY-----\n",
-  "client_email": "firebase-adminsdk-fbsvc@call-subscription.iam.gserviceaccount.com",
-  "client_id": "114212045403508351202",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40call-subscription.iam.gserviceaccount.com",
-  "universe_domain": "googleapis.com"
-};
-
+// 💡 FIX: Load credentials from the environment variable (best practice)
+let serviceAccount;
+try {
+    if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+        throw new Error("FIREBASE_SERVICE_ACCOUNT environment variable is not set.");
+    }
+    // The JSON string from the environment variable is parsed here
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} catch (e) {
+    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT:", e.message);
+    // If running locally without env vars, uncomment the hardcoded serviceAccount object below
+    // serviceAccount = { /* Paste your full JSON content here for local development only */ }; 
+    throw new Error("Firebase initialization failed due to credential error.");
+}
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   // RTDB URL is correctly set here
@@ -109,3 +108,4 @@ exports.getIncomingCall = async (req, res) => {
         redirect: callData.dashboardLink
     });
 };
+
