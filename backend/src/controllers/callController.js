@@ -2,6 +2,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 // 🚨 NEW IMPORT: Import the agent controller to check the status
+// Ensure the path is correct relative to this file's location (e.g., if controllers are siblings)
 const agentController = require('./agentController'); 
 
 // ----------------------------------------------------------------------
@@ -93,13 +94,17 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     
-    // 🚨 CORE FIX: Check Agent Status using the new exported getter
+    // 🚨 EXTENSIVE LOGGING: Check Agent Status 
+    // This calls the getter function which should also log the status it reads (in agentController.js)
     const currentAgentStatus = agentController.getRawStatus(); 
     
+    // 🚨 Log the decision point
+    console.log(`[CALL BLOCK CHECK] Call received. Agent Status read as: ${currentAgentStatus}`);
+    
     if (currentAgentStatus === 'offline') {
-        console.log("[INCOMING CALL BLOCKED] Agent is OFFLINE. Call not routed to socket.");
+        // Log the block and respond successfully to the caller (e.g., Twilio)
+        console.warn("[CALL BLOCKED SUCCESS] Agent is confirmed OFFLINE. Call processing stopped before lookup and socket emit.");
         
-        // Return a successful response to the calling service (e.g., Twilio/web)
         return res.status(200).json({ 
             message: "Agent is offline. Call routed to queue or voicemail.", 
             status: "Agent Offline" 
@@ -107,6 +112,8 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     }
 
     // --- Only proceed if the agent is ONLINE ---
+    console.log("[CALL PROCEED] Agent is ONLINE. Continuing with user lookup and socket emit.");
+
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
  
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
@@ -122,7 +129,7 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
      
     const ioInstance = ioInstanceGetter();
     if (ioInstance) {
-        console.log(`[VERIFY DEBUG] Status: ${callData.subscriptionStatus}. Redirecting to: ${callData.dashboardLink}`);
+        console.log(`[SOCKET EMIT] Status: ${callData.subscriptionStatus}. Emitting call data...`);
         ioInstance.emit("incoming-call", callData); // This only runs if status is 'online'
     } else {
         console.warn("Socket.IO instance not available via getter.");
