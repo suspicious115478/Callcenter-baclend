@@ -1,19 +1,20 @@
 // callController.js
 
 const { createClient } = require('@supabase/supabase-js');
-// 🚨 NEW IMPORT: Import the agent controller to check the status
-// Ensure the path is correct relative to this file's location (e.g., if controllers are siblings)
+// 🚨 IMPORT: Import the sibling agentController to access the status
 const agentController = require('./agentController'); 
 
 // ----------------------------------------------------------------------
-// SUPABASE INITIALIZATION
+// SUPABASE INITIALIZATION (SUBSCRIBERS DB)
 // ----------------------------------------------------------------------
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
+// 🚨 UPDATED: This controller uses the SUB_ prefix for the Subscriber DB
+const SUPABASE_URL = process.env.SUB_SUPABASE_URL; 
+const SUPABASE_ANON_KEY = process.env.SUB_SUPABASE_ANON_KEY; 
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error("Missing Supabase credentials in environment variables.");
+    // Note: Updated error message to reflect new variable names
+    throw new Error("Missing Subscriber Supabase credentials (SUB_SUPABASE_URL/KEY).");
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -32,21 +33,24 @@ const handleInactive = (dbPhoneNumber, name) => ({
 
 /**
  * Checks the subscription status of a phone number from the Supabase 'User' table.
+ * Logic: Matches last 10 digits of phone number -> Checks if plan_status is 'active'.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     
-    // Normalization to 10-digit format (e.g., '+911234567890' -> '1234567890')
+    // 1. Strip non-numeric characters
     const rawPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+    
+    // 2. Extract last 10 digits to ensure match with DB format (e.g., '9876543210')
     let dbPhoneNumber = rawPhoneNumber.slice(-10);
 
-    console.log(`[QUERY 1/4] Checking for phone: ${dbPhoneNumber}`);
+    console.log(`[SUPABASE QUERY] Searching for 10-digit number: ${dbPhoneNumber}`);
 
     try {
         // Query the 'User' table
         const { data: users, error } = await supabase
             .from('User')
             .select('plan_status, name') 
-            .eq('phone', dbPhoneNumber) // Queries for the 10-digit number
+            .eq('phone', dbPhoneNumber) 
             .limit(1);
 
         if (error) {
@@ -54,20 +58,11 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
             return handleInactive(dbPhoneNumber, "DB Error");
         }
 
-        // 🚨 DETAILED LOGGING 🚨
-        console.log(`[QUERY 2/4] Raw Supabase Data Received:`, users); 
+        console.log(`[SUPABASE RESULT] Data received:`, users); 
 
         const user = users ? users[0] : null;
 
-        // Check 3/4: Did we find a user?
-        if (!user) {
-            console.log(`[QUERY 3/4] RESULT: User NOT Found for ${dbPhoneNumber}.`);
-        } else {
-            console.log(`[QUERY 3/4] RESULT: User found! Plan Status is '${user.plan_status}'.`);
-        }
-
-
-        // Plan Status Check (Case-insensitive)
+        // Check if user exists and plan is explicitly 'active' (case-insensitive)
         if (user && user.plan_status && user.plan_status.toLowerCase() === 'active') {
             return {
                 hasActiveSubscription: true,
@@ -78,7 +73,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
             };
         }
 
-        // Default: Not Found or Inactive
+        // Default: User not found OR plan is not active
         return handleInactive(dbPhoneNumber, user ? user.name : "Unrecognized Caller");
         
     } catch (e) {
@@ -90,30 +85,32 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 
 /**
  * Main handler for the incoming call webhook.
- * 🚨 CRITICAL UPDATE: Checks agent status and blocks call if offline.
+ * 🚨 LOGIC FLOW:
+ * 1. Check Agent Status (Block if offline)
+ * 2. Check Subscription (Supabase)
+ * 3. Emit Socket Event (To Frontend)
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     
-    // 🚨 EXTENSIVE LOGGING: Check Agent Status 
-    // This calls the getter function which should also log the status it reads (in agentController.js)
+    console.log("--------------------------------------------------");
+    console.log("[INCOMING CALL] Webhook triggered.");
+
+    // 🚨 STEP 1: Check Agent Status
     const currentAgentStatus = agentController.getRawStatus(); 
     
-    // 🚨 Log the decision point
-    console.log(`[CALL BLOCK CHECK] Call received. Agent Status read as: ${currentAgentStatus}`);
-    
     if (currentAgentStatus === 'offline') {
-        // Log the block and respond successfully to the caller (e.g., Twilio)
-        console.warn("[CALL BLOCKED SUCCESS] Agent is confirmed OFFLINE. Call processing stopped before lookup and socket emit.");
+        console.warn(`[CALL BLOCKED] Agent Status is '${currentAgentStatus}'. Halting process.`);
         
+        // Return successful HTTP response to voice provider, but do NOT emit socket event.
         return res.status(200).json({ 
-            message: "Agent is offline. Call routed to queue or voicemail.", 
+            message: "Agent is offline. Call ignored.", 
             status: "Agent Offline" 
         });
     }
 
-    // --- Only proceed if the agent is ONLINE ---
-    console.log("[CALL PROCEED] Agent is ONLINE. Continuing with user lookup and socket emit.");
+    console.log(`[CALL PROCEEDING] Agent Status is '${currentAgentStatus}'. Processing call...`);
 
+    // 🚨 STEP 2: Process Subscription
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
  
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
@@ -127,14 +124,16 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         isExistingUser: userData.hasActiveSubscription
     };
      
+    // 🚨 STEP 3: Emit to Frontend via Socket
     const ioInstance = ioInstanceGetter();
     if (ioInstance) {
-        console.log(`[SOCKET EMIT] Status: ${callData.subscriptionStatus}. Emitting call data...`);
-        ioInstance.emit("incoming-call", callData); // This only runs if status is 'online'
+        console.log(`[SOCKET EMIT] Sending event to agent dashboard. Status: ${callData.subscriptionStatus}`);
+        ioInstance.emit("incoming-call", callData); 
     } else {
-        console.warn("Socket.IO instance not available via getter.");
+        console.warn("[SOCKET ERROR] Socket.IO instance not found via getter.");
     }
      
+    // 🚨 STEP 4: Respond to Webhook
     res.status(200).json({
         message: "Call processed, agent notified.",
         status: callData.subscriptionStatus,
