@@ -6,17 +6,32 @@ const { createClient } = require('@supabase/supabase-js');
 const agentController = require('./agentController'); 
 
 // ----------------------------------------------------------------------
-// SUPABASE INITIALIZATION
+// MAIN SUPABASE INITIALIZATION (For User/Subscription Lookup)
 // ----------------------------------------------------------------------
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error("Missing Supabase credentials in environment variables.");
+    throw new Error("Missing main Supabase credentials in environment variables.");
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ----------------------------------------------------------------------
+// LOGGING SUPABASE INITIALIZATION (For Ticket Creation/Call Logs)
+// ----------------------------------------------------------------------
+
+const LOG_SUPABASE_URL = process.env.LOG_SUPABASE_URL;
+const LOG_SUPABASE_ANON_KEY = process.env.LOG_SUPABASE_ANON_KEY; 
+
+let logSupabase = null;
+if (LOG_SUPABASE_URL && LOG_SUPABASE_ANON_KEY) {
+    logSupabase = createClient(LOG_SUPABASE_URL, LOG_SUPABASE_ANON_KEY);
+    console.log("Logging Supabase client initialized.");
+} else {
+    console.warn("Missing LOG_SUPABASE credentials. Ticket creation will be disabled.");
+}
 
 /**
  * Helper function for handling inactive/non-existent users.
@@ -115,9 +130,9 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     console.log("[CALL PROCEED] Agent is ONLINE. Continuing with user lookup and socket emit.");
 
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
- 
+    
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
- 
+    
     const callData = {
         caller: incomingNumber,
         name: userData.userName,
@@ -126,7 +141,7 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         ticket: userData.ticket,
         isExistingUser: userData.hasActiveSubscription
     };
-     
+    
     const ioInstance = ioInstanceGetter();
     if (ioInstance) {
         console.log(`[SOCKET EMIT] Status: ${callData.subscriptionStatus}. Emitting call data...`);
@@ -134,10 +149,57 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     } else {
         console.warn("Socket.IO instance not available via getter.");
     }
-     
+    
     res.status(200).json({
         message: "Call processed, agent notified.",
         status: callData.subscriptionStatus,
         redirect: callData.dashboardLink
     });
+};
+
+/**
+ * Handles saving agent notes as a new ticket in the separate logging database.
+ */
+exports.createTicket = async (req, res) => {
+    if (!logSupabase) {
+        console.error('Ticket creation failed: Logging Supabase client is not initialized.');
+        return res.status(500).json({ message: 'Ticket system offline. Please check logs for LOG_SUPABASE configuration.' });
+    }
+
+    const { phoneNumber, requestDetails } = req.body; 
+    // Agent ID should ideally come from a session/auth token, but using a placeholder for now
+    const activeAgentId = req.headers['x-agent-id'] || 'AGENT_001'; 
+
+    if (!phoneNumber || !requestDetails) {
+        return res.status(400).json({ message: 'Missing phone number or request details.' });
+    }
+
+    try {
+        const { data, error } = await logSupabase
+            .from('tickets') // ASSUMING your table is named 'tickets' in the logging Supabase DB
+            .insert([
+                { 
+                    phone_number: phoneNumber,
+                    request_details: requestDetails,
+                    agent_id: activeAgentId, 
+                    status: 'New', 
+                    created_at: new Date().toISOString(),
+                },
+            ])
+            .select('id'); // Selects the ID of the new ticket
+
+        if (error) {
+            console.error('Supabase error creating ticket:', error.message);
+            return res.status(500).json({ message: 'Database error creating ticket.', details: error.message });
+        }
+
+        res.status(201).json({ 
+            message: 'Ticket created successfully.', 
+            ticket_id: data[0].id // Return the created ticket ID
+        });
+
+    } catch (err) {
+        console.error('Server exception during ticket creation:', err.message);
+        res.status(500).json({ message: 'Internal server error.' });
+    }
 };
