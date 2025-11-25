@@ -245,4 +245,49 @@ exports.createTicket = async (req, res) => {
     }
 };
 
+// ----------------------------------------------------------------------
+// 🚀 NEW FUNCTION: Fetch Addresses for a User
+// ----------------------------------------------------------------------
 
+/**
+ * Fetches all address_line entries from the 'Address' table for a given user_id.
+ */
+exports.getAddressByUserId = async (req, res) => {
+    // Get the user_id from the URL parameters
+    const { userId } = req.params; 
+
+    if (!userId) {
+        console.error('ADDRESS LOOKUP FAIL: Missing userId in request parameters.');
+        return res.status(400).json({ message: 'Missing user ID.' });
+    }
+
+    try {
+        console.log(`[ADDRESS LOOKUP] Searching 'Address' table for user_id: ${userId}`);
+
+        // --- QUERY: Fetch addresses using the user_id ---
+        const { data: addresses, error } = await supabase
+            .from('Address')
+            .select('id, address_line') // Fetch address_line and address ID for selection
+            .eq('user_id', userId); 
+
+        if (error) {
+            console.error("[ADDRESS LOOKUP ERROR] Supabase Address query error:", error.message);
+            return res.status(500).json({ message: 'Database query failed.', details: error.message });
+        }
+        
+        // If data is empty, it means no addresses were found, which is a success.
+        console.log(`[ADDRESS LOOKUP SUCCESS] Found ${addresses.length} addresses for user ${userId}.`);
+
+        res.status(200).json({
+            message: 'Addresses fetched successfully.',
+            addresses: addresses || [] // Ensure it returns an array
+        });
+
+    } catch (e) {
+        console.error("[ADDRESS LOOKUP EXCEPTION] General server exception:", e.message);
+        res.status(500).json({ message: 'Internal server error during address lookup.' });
+    }
+};
+
+// Note: You must now map exports.getAddressByUserId to a route like /call/address/:userId 
+// in your main Express/Node app file (e.g., app.js or routes file).
