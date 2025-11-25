@@ -28,7 +28,7 @@ exports.setupSocket = (server) => {
       }
 
       // 2. Proceed only if Online
-      const testNumber = "9876543210"; // Using 10-digit format to match DB
+      const testNumber = "+919812300001"; // Using 10-digit format to match DB
       
       const callData = await callController.checkSubscriptionStatus(testNumber);
       
@@ -47,3 +47,4 @@ exports.setupSocket = (server) => {
 };
 
 exports.io = () => ioInstance;
+
