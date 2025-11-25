@@ -66,7 +66,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         const { data: allowedNumbers, error: allowedError } = await supabase
             .from('AllowedNumber')
             .select('user_id') 
-            .eq('phone', dbPhoneNumber) 
+            .eq('phone_number', dbPhoneNumber) 
             .limit(1);
 
         if (allowedError) {
@@ -244,3 +244,4 @@ exports.createTicket = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during ticket creation.' });
     }
 };
+
