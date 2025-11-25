@@ -27,10 +27,15 @@ const LOG_SUPABASE_ANON_KEY = process.env.LOG_SUPABASE_ANON_KEY;
 
 let logSupabase = null;
 if (LOG_SUPABASE_URL && LOG_SUPABASE_ANON_KEY) {
-    logSupabase = createClient(LOG_SUPABASE_URL, LOG_SUPABASE_ANON_KEY);
-    console.log("Logging Supabase client initialized.");
+    try {
+        logSupabase = createClient(LOG_SUPABASE_URL, LOG_SUPABASE_ANON_KEY);
+        console.log("Logging Supabase client initialized successfully.");
+    } catch (e) {
+        console.error("Failed to initialize logging Supabase client:", e.message);
+        // Keep logSupabase as null if initialization fails
+    }
 } else {
-    console.warn("Missing LOG_SUPABASE credentials. Ticket creation will be disabled.");
+    console.warn("Missing LOG_SUPABASE credentials (LOG_SUPABASE_URL or LOG_SUPABASE_ANON_KEY). Ticket creation will be disabled.");
 }
 
 /**
@@ -161,20 +166,23 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
  * Handles saving agent notes as a new ticket in the separate logging database.
  */
 exports.createTicket = async (req, res) => {
+    // 1. Check if the logging client was successfully initialized
     if (!logSupabase) {
-        console.error('Ticket creation failed: Logging Supabase client is not initialized.');
-        return res.status(500).json({ message: 'Ticket system offline. Please check logs for LOG_SUPABASE configuration.' });
+        console.error('TICKET FAIL: Logging Supabase client is NOT initialized. Check LOG_SUPABASE environment variables.');
+        return res.status(500).json({ message: 'Ticket system is offline. Configuration error.' });
     }
 
     const { phoneNumber, requestDetails } = req.body; 
-    // Agent ID should ideally come from a session/auth token, but using a placeholder for now
     const activeAgentId = req.headers['x-agent-id'] || 'AGENT_001'; 
 
     if (!phoneNumber || !requestDetails) {
+        console.error('TICKET FAIL: Missing required data (phone or notes).');
         return res.status(400).json({ message: 'Missing phone number or request details.' });
     }
 
     try {
+        console.log(`TICKET LOG: Attempting to create ticket for ${phoneNumber} by ${activeAgentId}...`);
+        
         const { data, error } = await logSupabase
             .from('tickets') // ASSUMING your table is named 'tickets' in the logging Supabase DB
             .insert([
@@ -189,17 +197,24 @@ exports.createTicket = async (req, res) => {
             .select('id'); // Selects the ID of the new ticket
 
         if (error) {
-            console.error('Supabase error creating ticket:', error.message);
-            return res.status(500).json({ message: 'Database error creating ticket.', details: error.message });
+            // 🚨 CRITICAL LOGGING: Print the exact Supabase error message
+            console.error('TICKET FAIL: Supabase Insertion Error:', error.message);
+            // This error often indicates a missing table, column mismatch, or security rule violation.
+            return res.status(500).json({ message: 'Database insertion failed.', details: error.message });
         }
 
+        console.log(`TICKET SUCCESS: Created new ticket ID: ${data[0].id}`);
+        
+        // 🚨 CRITICAL UPDATE: Return the requestDetails and the new ticket ID for frontend redirection
         res.status(201).json({ 
             message: 'Ticket created successfully.', 
-            ticket_id: data[0].id // Return the created ticket ID
+            ticket_id: data[0].id,
+            requestDetails: requestDetails // Send the notes back for the next page
         });
 
     } catch (err) {
-        console.error('Server exception during ticket creation:', err.message);
-        res.status(500).json({ message: 'Internal server error.' });
+        // 🚨 CRITICAL LOGGING: Catch unexpected server errors
+        console.error('TICKET FAIL: Internal Server Exception:', err.message);
+        res.status(500).json({ message: 'Internal server error during ticket creation.' });
     }
 };
