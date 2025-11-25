@@ -1,248 +1,462 @@
-const { createClient } = require('@supabase/supabase-js');
-// 🚨 NEW IMPORT: Import the agent controller to check the status
-// Ensure the path is correct relative to this file's location (e.g., if controllers are siblings)
-const agentController = require('./agentController'); 
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 
-// ----------------------------------------------------------------------
-// MAIN SUPABASE INITIALIZATION (For User/Subscription Lookup)
-// ----------------------------------------------------------------------
-
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error("Missing main Supabase credentials in environment variables.");
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-// ----------------------------------------------------------------------
-// LOGGING SUPABASE INITIALIZATION (For Ticket Creation/Call Logs)
-// ----------------------------------------------------------------------
-
-const LOG_SUPABASE_URL = process.env.LOG_SUPABASE_URL;
-const LOG_SUPABASE_ANON_KEY = process.env.LOG_SUPABASE_ANON_KEY; 
-
-let logSupabase = null;
-if (LOG_SUPABASE_URL && LOG_SUPABASE_ANON_KEY) {
-    try {
-        logSupabase = createClient(LOG_SUPABASE_URL, LOG_SUPABASE_ANON_KEY);
-        console.log("Logging Supabase client initialized successfully.");
-    } catch (e) {
-        console.error("Failed to initialize logging Supabase client:", e.message);
-        // Keep logSupabase as null if initialization fails
-    }
-} else {
-    console.warn("Missing LOG_SUPABASE credentials (LOG_SUPABASE_URL or LOG_SUPABASE_ANON_KEY). Ticket creation will be disabled.");
-}
-
-/**
- * Helper function for handling inactive/non-existent users.
- */
-const handleInactive = (dbPhoneNumber, name) => ({
-    hasActiveSubscription: false,
-    userName: name,
-    subscriptionStatus: "None", 
-    dashboardLink: `/new-call/search?caller=${dbPhoneNumber}`, 
-    ticket: "New Call - Search Required"
-});
+// Using a placeholder URL internally to resolve the 'Could not resolve' error.
+import { BACKEND_URL } from '../config';
 
 
-/**
- * Checks the subscription status of a phone number by first looking up the user_id
- * in 'AllowedNumber' and then checking the 'plan_status' in the 'User' table.
- */
-exports.checkSubscriptionStatus = async (phoneNumber) => {
-    
-    // Normalization to keep ALL digits (including country code).
-    const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    
-    console.log(`[SUBSCRIPTION CHECK] Starting lookup for incoming number: ${phoneNumber}. Normalized DB format: ${dbPhoneNumber}`);
+export default function UserDashboardPage() {
+  // CRITICAL: Assuming the route parameter is the userId, not phoneNumber,
+  // based on the controller's dashboardLink definition: /user/dashboard/:userId
+  const { userId } = useParams(); 
+  const navigate = useNavigate();
+  
+  // New States for Data Fetching and Selection
+  const [userData, setUserData] = useState(null);
+  const [loadingData, setLoadingData] = useState(true);
+  const [addresses, setAddresses] = useState([]);
+  const [selectedAddress, setSelectedAddress] = useState('');
+  
+  // Existing States
+  const [notes, setNotes] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
 
-    try {
-        // --- STEP 1: Query the 'AllowedNumber' table for the user_id ---
-        console.log(`[QUERY 1/2 - AllowedNumber] Searching 'AllowedNumber' table for phone: ${dbPhoneNumber}`);
-        
-        const { data: allowedNumbers, error: allowedError } = await supabase
-            .from('AllowedNumber')
-            .select('user_id') 
-            .eq('phone_number', dbPhoneNumber) 
-            .limit(1);
+  // Helper values derived from state
+  const phoneNumber = userData?.phoneNumber || 'Unknown';
+  const userName = userData?.name || 'Loading User...';
+  const subscriptionStatus = userData?.planStatus || 'Loading...';
 
-        if (allowedError) {
-            console.error("[QUERY 1/2 ERROR] Supabase AllowedNumber query error:", allowedError.message);
-            return handleInactive(dbPhoneNumber, "DB Error");
-        }
+  // --- EFFECT 1: Clock Timer ---
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date().toLocaleTimeString()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-        const allowedEntry = allowedNumbers ? allowedNumbers[0] : null;
-        console.log("[QUERY 1/2 RESULT] Raw AllowedNumber Data:", allowedNumbers);
-
-        if (!allowedEntry || !allowedEntry.user_id) {
-            console.log(`[QUERY 1/2 FAILURE] Phone number ${dbPhoneNumber} NOT found in AllowedNumber table. Treating as Unrecognized Caller.`);
-            return handleInactive(dbPhoneNumber, "Unrecognized Caller");
-        }
-
-        const userId = allowedEntry.user_id;
-        console.log(`[QUERY 1/2 SUCCESS] Retrieved user_id: ${userId}`);
-
-
-        // --- STEP 2: Query the 'User' table using the retrieved user_id ---
-        console.log(`[QUERY 2/2 - User] Searching 'User' table for plan status using user_id: ${userId}`);
-
-        const { data: users, error: userError } = await supabase
-            .from('User')
-            .select('plan_status, name') 
-            .eq('user_id', userId) // Queries for the user using the user_id
-            .limit(1);
-
-        if (userError) {
-            console.error("[QUERY 2/2 ERROR] Supabase User query error:", userError.message);
-            return handleInactive(dbPhoneNumber, "DB Error");
-        }
-        
-        const user = users ? users[0] : null;
-        console.log("[QUERY 2/2 RESULT] Raw User Data:", users);
-
-        // Check if user data exists for the retrieved ID
-        if (!user) {
-            console.log(`[QUERY 2/2 FAILURE] User ID ${userId} NOT found in User table.`);
-            return handleInactive(dbPhoneNumber, "User Data Missing");
-        }
-
-        console.log(`[STATUS CHECK] User ID ${userId} found! Plan Status is '${user.plan_status}'.`);
-
-        // Plan Status Check (Case-insensitive)
-        if (user.plan_status && user.plan_status.toLowerCase() === 'active') {
-            console.log(`[FINAL RESULT] Status ACTIVE. Preparing dashboard link with userId: ${userId}`);
-            return {
-                hasActiveSubscription: true,
-                userName: user.name || "Active Subscriber",
-                subscriptionStatus: "Verified",
-                dashboardLink: `/user/dashboard/${userId}`, // Using user_id for dashboard link
-                ticket: "Active Plan Call"
-            };
-        }
-
-        // Default: Inactive Plan Status
-        console.log(`[FINAL RESULT] Status INACTIVE. Returning inactive handler.`);
-        return handleInactive(dbPhoneNumber, user.name || "Inactive Subscriber");
-        
-    } catch (e) {
-        console.error("[LOOKUP EXCEPTION] General Supabase lookup exception:", e.message);
-        return handleInactive(dbPhoneNumber, "System Error");
-    }
-};
-
-
-/**
- * Main handler for the incoming call webhook.
- * 🚨 CRITICAL UPDATE: Checks agent status and blocks call if offline.
- */
-exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
-    
-    // 🚨 EXTENSIVE LOGGING: Check Agent Status 
-    // This calls the getter function which should also log the status it reads (in agentController.js)
-    const currentAgentStatus = agentController.getRawStatus(); 
-    
-    // 🚨 Log the decision point
-    console.log(`[CALL BLOCK CHECK] Call received. Agent Status read as: ${currentAgentStatus}`);
-    
-    if (currentAgentStatus === 'offline') {
-        // Log the block and respond successfully to the caller (e.g., Twilio)
-        console.warn("[CALL BLOCKED SUCCESS] Agent is confirmed OFFLINE. Call processing stopped before lookup and socket emit.");
-        
-        return res.status(200).json({ 
-            message: "Agent is offline. Call routed to queue or voicemail.", 
-            status: "Agent Offline" 
-        });
+  // --- EFFECT 2: Fetch User Data and Addresses ---
+  useEffect(() => {
+    if (!userId) {
+      setLoadingData(false);
+      return;
     }
 
-    // --- Only proceed if the agent is ONLINE ---
-    console.log("[CALL PROCEED] Agent is ONLINE. Continuing with user lookup and socket emit.");
+    const fetchDashboardData = async () => {
+      setLoadingData(true);
+      try {
+        // CRITICAL: Call the new backend endpoint
+        const response = await fetch(`${BACKEND_URL}/user/data/${userId}`);
 
-    const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
-    
-    const userData = await exports.checkSubscriptionStatus(incomingNumber);
-    
-    const callData = {
-        caller: incomingNumber,
-        name: userData.userName,
-        subscriptionStatus: userData.subscriptionStatus,
-        dashboardLink: userData.dashboardLink,
-        ticket: userData.ticket,
-        isExistingUser: userData.hasActiveSubscription
+        if (!response.ok) {
+          throw new Error(`Failed to fetch dashboard data. Status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Assuming the phone number is not available here, but the user data is
+        setUserData({
+            userId: data.userId,
+            name: data.name,
+            planStatus: data.planStatus,
+            // Assuming the actual phone number is needed for the ticket creation, 
+            // you might need to adjust the backend to return it, or pass it via the initial socket event.
+            // For now, we will use a placeholder or assume it's stored in 'User' table if required for ticket logging.
+            phoneNumber: phoneNumber, // Keep existing phone number variable if it was available from the route's state
+        }); 
+        setAddresses(data.addresses);
+
+        // Pre-select the first address if available
+        if (data.addresses && data.addresses.length > 0) {
+            setSelectedAddress(data.addresses[0]);
+        }
+        
+      } catch (error) {
+        console.error('Dashboard Data Fetch Error:', error);
+        setSaveMessage(`❌ Error fetching user data: ${error.message}`);
+      } finally {
+        setLoadingData(false);
+      }
     };
-    
-    const ioInstance = ioInstanceGetter();
-    if (ioInstance) {
-        console.log(`[SOCKET EMIT] Status: ${callData.subscriptionStatus}. Emitting call data...`);
-        ioInstance.emit("incoming-call", callData); // This only runs if status is 'online'
-    } else {
-        console.warn("Socket.IO instance not available via getter.");
+
+    fetchDashboardData();
+  }, [userId]);
+
+
+  // --- RESTORED FUNCTION: Save Notes to Backend as a Ticket and Navigate ---
+  const saveNotesAsTicket = async () => {
+    if (!notes.trim()) {
+      setSaveMessage('Error: Notes cannot be empty.');
+      setTimeout(() => setSaveMessage(''), 3000);
+      return;
     }
     
-    res.status(200).json({
-        message: "Call processed, agent notified.",
-        status: callData.subscriptionStatus,
-        redirect: callData.dashboardLink
-    });
-};
-
-/**
- * Handles saving agent notes as a new ticket in the separate logging database.
- */
-exports.createTicket = async (req, res) => {
-    // 1. Check if the logging client was successfully initialized
-    if (!logSupabase) {
-        console.error('TICKET FAIL: Logging Supabase client is NOT initialized. Check LOG_SUPABASE environment variables.');
-        return res.status(500).json({ message: 'Ticket system is offline. Configuration error.' });
+    // CRITICAL: Address is mandatory if multiple exist
+    if (addresses.length > 0 && !selectedAddress) {
+         setSaveMessage('Error: Please select a service address.');
+         setTimeout(() => setSaveMessage(''), 3000);
+         return;
     }
 
-    const { phoneNumber, requestDetails } = req.body; 
-    const activeAgentId = req.headers['x-agent-id'] || 'AGENT_001'; 
-
-    if (!phoneNumber || !requestDetails) {
-        console.error('TICKET FAIL: Missing required data (phone or notes).');
-        return res.status(400).json({ message: 'Missing phone number or request details.' });
-    }
+    setIsSaving(true);
+    setSaveMessage('Saving...');
 
     try {
-        console.log(`TICKET LOG: Attempting to create ticket for ${phoneNumber} by ${activeAgentId}...`);
-        
-        const { data, error } = await logSupabase
-            .from('tickets') // ASSUMING your table is named 'tickets' in the logging Supabase DB
-            .insert([
-                { 
-                    phone_number: phoneNumber,
-                    request_details: requestDetails,
-                    agent_id: activeAgentId, 
-                    status: 'New', 
-                    created_at: new Date().toISOString(),
-                },
-            ])
-            .select('id'); // Selects the ID of the new ticket
+      const response = await fetch(`${BACKEND_URL}/call/ticket`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Agent-Id': 'AGENT_001', 
+        },
+        body: JSON.stringify({
+          phoneNumber: phoneNumber, // Assuming phone number is available/mocked
+          requestDetails: notes.trim(),
+          selectedAddress: selectedAddress, // CRITICAL: Include the selected address
+        }),
+      });
 
-        if (error) {
-            // 🚨 CRITICAL LOGGING: Print the exact Supabase error message
-            console.error('TICKET FAIL: Supabase Insertion Error:', error.message);
-            // This error often indicates a missing table, column mismatch, or security rule violation.
-            return res.status(500).json({ message: 'Database insertion failed.', details: error.message });
+      if (!response.ok) {
+        let errorData = {};
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          const errorText = await response.text();
+          throw new Error(`Server responded with ${response.status}. Body: ${errorText.substring(0, 100)}...`);
         }
+        throw new Error(errorData.message || 'Server error occurred.');
+      }
 
-        console.log(`TICKET SUCCESS: Created new ticket ID: ${data[0].id}`);
-        
-        // 🚨 CRITICAL UPDATE: Return the requestDetails and the new ticket ID for frontend redirection
-        res.status(201).json({ 
-            message: 'Ticket created successfully.', 
-            ticket_id: data[0].id,
-            requestDetails: requestDetails // Send the notes back for the next page
-        });
+      const result = await response.json();
 
-    } catch (err) {
-        // 🚨 CRITICAL LOGGING: Catch unexpected server errors
-        console.error('TICKET FAIL: Internal Server Exception:', err.message);
-        res.status(500).json({ message: 'Internal server error during ticket creation.' });
+      console.log(`Ticket ${result.ticket_id} created. Navigating to service selection.`);
+      
+      // Navigate, passing the necessary data (ticketId, requestDetails, and selectedAddress) in the state
+      navigate('/user/services', {
+        state: {
+          ticketId: result.ticket_id,
+          requestDetails: result.requestDetails || notes.trim(), 
+          selectedAddress: selectedAddress, // Pass the selected address to the next page
+        }
+      });
+      
+
+    } catch (error) {
+      console.error('API Error:', error);
+      setSaveMessage(`❌ Failed to create ticket: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+      setTimeout(() => setSaveMessage(''), 5000);
     }
-};
+  };
+  // --------------------------------------------------------
+
+  // --- INLINE STYLES ADAPTED FOR COMPILATION ---
+  const styles = {
+    container: {
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100vh',
+      fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      backgroundColor: '#f3f4f6',
+      color: '#111827',
+    },
+    header: {
+      height: '64px',
+      backgroundColor: '#1f2937', 
+      color: 'white',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '0 24px',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+      zIndex: 20,
+    },
+    brand: {
+      fontSize: '1.25rem',
+      fontWeight: '700',
+      letterSpacing: '-0.025em',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+    },
+    headerRight: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '24px',
+    },
+    clock: {
+      fontFamily: 'monospace',
+      color: '#9ca3af',
+      fontSize: '0.95rem',
+    },
+    avatar: {
+      width: '36px',
+      height: '36px',
+      borderRadius: '50%',
+      backgroundColor: '#374151',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: '0.875rem',
+      fontWeight: '600',
+      border: '2px solid #4b5563',
+    },
+    main: {
+      display: 'flex',
+      flex: 1,
+      overflow: 'hidden',
+    },
+    sidebar: {
+      width: '300px',
+      backgroundColor: 'white',
+      borderRight: '1px solid #e5e7eb',
+      padding: '24px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '32px',
+      flexShrink: 0,
+    },
+    contentArea: {
+      flex: 1,
+      padding: '32px',
+      backgroundColor: '#f3f4f6',
+      overflowY: 'auto',
+    },
+    card: {
+      padding: '20px',
+      backgroundColor: 'white',
+      borderRadius: '12px',
+      border: '1px solid #e5e7eb',
+      boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+    },
+    title: {
+      fontSize: '1.5rem',
+      fontWeight: '700',
+      color: '#111827',
+      marginBottom: '24px',
+    },
+    notesTextarea: {
+      width: '100%',
+      minHeight: '200px', // Reduced height to make room for address selector
+      padding: '16px',
+      fontSize: '1rem',
+      border: '1px solid #d1d5db',
+      borderRadius: '8px',
+      resize: 'vertical',
+      fontFamily: 'inherit',
+      boxSizing: 'border-box',
+    },
+    userInfoBlock: {
+      marginBottom: '24px',
+    },
+    userInfoTitle: {
+      fontSize: '1.125rem',
+      fontWeight: '600',
+      color: '#111827',
+      marginBottom: '12px',
+      paddingBottom: '8px',
+      borderBottom: '1px solid #e5e7eb',
+    },
+    infoRow: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '10px 0',
+      borderBottom: '1px dashed #f3f4f6',
+    },
+    infoKey: {
+      fontSize: '0.875rem',
+      color: '#6b7280',
+    },
+    infoVal: {
+      fontSize: '0.875rem',
+      fontWeight: '700',
+      color: '#111827',
+    },
+    subscriptionBadge: {
+      padding: '4px 10px',
+      borderRadius: '9999px',
+      fontSize: '0.75rem',
+      fontWeight: '600',
+      backgroundColor: subscriptionStatus === 'active' ? '#d1fae5' : '#fef9c3',
+      color: subscriptionStatus === 'active' ? '#065f46' : '#a16207',
+    },
+    addressSelector: {
+        marginTop: '20px',
+        padding: '20px',
+        backgroundColor: '#f9fafb',
+        borderRadius: '12px',
+        border: '1px dashed #d1d5db',
+    },
+    addressOption: {
+        display: 'flex',
+        alignItems: 'center',
+        marginBottom: '10px',
+        cursor: 'pointer',
+        padding: '8px',
+        borderRadius: '6px',
+        transition: 'background-color 0.2s',
+        backgroundColor: '#fff',
+        border: '1px solid #e5e7eb',
+    },
+    addressSelected: {
+        backgroundColor: '#e0f2f1',
+        borderColor: '#0d9488',
+        boxShadow: '0 0 0 2px #ccfbf1',
+    },
+    addressRadio: {
+        marginRight: '12px',
+        minWidth: '16px',
+        minHeight: '16px',
+    },
+    addressLine: {
+        fontSize: '0.95rem',
+        color: '#1f2937',
+        fontWeight: '500',
+    },
+    saveButton: {
+      padding: '10px 20px',
+      borderRadius: '8px',
+      border: 'none',
+      fontWeight: '600',
+      fontSize: '0.875rem',
+      cursor: isSaving || loadingData ? 'default' : 'pointer',
+      backgroundColor: isSaving || loadingData ? '#6b7280' : '#10b981',
+      color: 'white',
+      transition: 'background-color 0.3s',
+      boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.4), 0 2px 4px -2px rgba(16, 185, 129, 0.4)',
+    },
+    message: {
+      marginRight: '15px',
+      fontSize: '0.875rem',
+      fontWeight: '600',
+      color: saveMessage.includes('Error') ? '#ef4444' : '#047857',
+    }
+  };
+  // --------------------------------------------------------
+
+  if (loadingData) {
+      return (
+          <div style={{ ...styles.container, justifyContent: 'center', alignItems: 'center' }}>
+              <p style={{ fontSize: '1.5rem', color: '#4f46e5' }}>Loading user data and addresses...</p>
+          </div>
+      );
+  }
 
 
+  return (
+    <div style={styles.container}>
+      {/* HEADER */}
+      <header style={styles.header}>
+        <div style={styles.brand}>
+          {/* Inline SVG Phone Icon (replacement for lucide-react) */}
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+          </svg>
+          <span>CC Agent Console: Active Call</span>
+        </div>
+        <div style={styles.headerRight}>
+          <span style={styles.clock}>{currentTime}</span>
+          <div style={styles.avatar}>AG</div>
+        </div>
+      </header>
+
+      <div style={styles.main}>
+        {/* SIDEBAR - Used to display User/Call Info */}
+        <aside style={styles.sidebar}>
+          <div style={{ ...styles.card, ...styles.userInfoBlock }}>
+            <div style={styles.userInfoTitle}>☎️ Customer Details</div>
+            
+            <div style={styles.infoRow}>
+              <span style={styles.infoKey}>Customer Name</span>
+              <span style={styles.infoVal}>{userName}</span>
+            </div>
+            
+            <div style={styles.infoRow}>
+              <span style={styles.infoKey}>Call Number</span>
+              <span style={styles.infoVal}>{phoneNumber}</span>
+            </div>
+            
+            <div style={styles.infoRow}>
+              <span style={styles.infoKey}>Subscription Status</span>
+              <span style={styles.subscriptionBadge}>{subscriptionStatus}</span>
+            </div>
+            
+            <div style={{ marginTop: '16px', fontSize: '0.8rem', color: '#9ca3af' }}>
+              *Details for User ID: {userId}
+            </div>
+          </div>
+          
+          <div style={{ ...styles.card, flex: 1 }}>
+            <div style={styles.userInfoTitle}>Call History Summary</div>
+            <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+              *Implement history lookup here (e.g., last 3 tickets, products owned).
+            </p>
+          </div>
+        </aside>
+
+        {/* CONTENT AREA - Used for Note Taking and Address Selection */}
+        <main style={styles.contentArea}>
+          <h2 style={styles.title}>📝 Active Call Notes & Service Intake</h2>
+
+          <div style={styles.card}>
+            {/* Notes Section */}
+            <textarea
+              style={styles.notesTextarea}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Start taking notes on the user's request, issues, or actions taken..."
+            />
+            
+            {/* Address Selection Section */}
+            {addresses.length > 0 && (
+                <div style={styles.addressSelector}>
+                    <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '15px' }}>
+                        📍 Select Service Address:
+                    </h3>
+                    {addresses.map((address, index) => (
+                        <div 
+                            key={index}
+                            style={{ 
+                                ...styles.addressOption, 
+                                ...(selectedAddress === address ? styles.addressSelected : {}) 
+                            }}
+                            onClick={() => setSelectedAddress(address)}
+                        >
+                            <input 
+                                type="radio" 
+                                name="serviceAddress" 
+                                value={address} 
+                                checked={selectedAddress === address}
+                                onChange={() => setSelectedAddress(address)}
+                                style={styles.addressRadio}
+                            />
+                            <span style={styles.addressLine}>{address}</span>
+                        </div>
+                    ))}
+                    {addresses.length === 0 && (
+                        <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>No saved addresses found.</p>
+                    )}
+                </div>
+            )}
+            
+            {/* Action Buttons */}
+            <div style={{ marginTop: '20px', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+              {saveMessage && (
+                <span style={styles.message}>{saveMessage}</span>
+              )}
+              <button 
+                onClick={saveNotesAsTicket} 
+                disabled={isSaving || loadingData}
+                style={styles.saveButton}
+              >
+                {isSaving ? 'Saving...' : 'Save Notes & Select Service'}
+              </button>
+            </div>
+
+          </div>
+
+        </main>
+      </div>
+    </div>
+  );
+}
