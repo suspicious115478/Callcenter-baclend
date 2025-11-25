@@ -56,8 +56,8 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
     
     // Normalization to 10-digit format (e.g., '+911234567890' -> '1234567890')
     const rawPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    let dbPhoneNumber;
-  // = rawPhoneNumber.slice(-10)
+    let dbPhoneNumber = rawPhoneNumber.slice(-10);
+ 
 
     console.log(`[QUERY 1/2: AllowedNumber] Checking for phone: ${dbPhoneNumber}`);
 
@@ -241,5 +241,6 @@ exports.createTicket = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during ticket creation.' });
     }
 };
+
 
 
