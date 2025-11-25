@@ -54,77 +54,81 @@ const handleInactive = (dbPhoneNumber, name) => ({
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     
-    // ✅ MODIFIED LOGIC: Normalization now keeps ALL digits (including country code).
-    // E.g., '+919812300001' becomes '919812300001'
+    // Normalization to keep ALL digits (including country code).
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
     
-    console.log(`[QUERY 1/2: AllowedNumber] Checking for phone: ${dbPhoneNumber}`);
+    console.log(`[SUBSCRIPTION CHECK] Starting lookup for incoming number: ${phoneNumber}. Normalized DB format: ${dbPhoneNumber}`);
 
     try {
         // --- STEP 1: Query the 'AllowedNumber' table for the user_id ---
+        console.log(`[QUERY 1/2 - AllowedNumber] Searching 'AllowedNumber' table for phone: ${dbPhoneNumber}`);
+        
         const { data: allowedNumbers, error: allowedError } = await supabase
             .from('AllowedNumber')
             .select('user_id') 
-            .eq('phone', dbPhoneNumber) // Queries for the full number including country code
+            .eq('phone', dbPhoneNumber) 
             .limit(1);
 
         if (allowedError) {
-            console.error("Supabase AllowedNumber query error:", allowedError.message);
+            console.error("[QUERY 1/2 ERROR] Supabase AllowedNumber query error:", allowedError.message);
             return handleInactive(dbPhoneNumber, "DB Error");
         }
 
         const allowedEntry = allowedNumbers ? allowedNumbers[0] : null;
+        console.log("[QUERY 1/2 RESULT] Raw AllowedNumber Data:", allowedNumbers);
 
         if (!allowedEntry || !allowedEntry.user_id) {
-            console.log(`[QUERY 1/2] RESULT: Phone number ${dbPhoneNumber} NOT found in AllowedNumber table.`);
+            console.log(`[QUERY 1/2 FAILURE] Phone number ${dbPhoneNumber} NOT found in AllowedNumber table. Treating as Unrecognized Caller.`);
             return handleInactive(dbPhoneNumber, "Unrecognized Caller");
         }
 
         const userId = allowedEntry.user_id;
-        console.log(`[QUERY 1/2] SUCCESS: Found user_id: ${userId}`);
+        console.log(`[QUERY 1/2 SUCCESS] Retrieved user_id: ${userId}`);
 
 
         // --- STEP 2: Query the 'User' table using the retrieved user_id ---
-        console.log(`[QUERY 2/2: User] Checking plan status for user_id: ${userId}`);
+        console.log(`[QUERY 2/2 - User] Searching 'User' table for plan status using user_id: ${userId}`);
 
         const { data: users, error: userError } = await supabase
             .from('User')
             .select('plan_status, name') 
-            .eq('id', userId) // Queries for the user using the user_id from the first query
+            .eq('id', userId) // Queries for the user using the user_id
             .limit(1);
 
         if (userError) {
-            console.error("Supabase User query error:", userError.message);
+            console.error("[QUERY 2/2 ERROR] Supabase User query error:", userError.message);
             return handleInactive(dbPhoneNumber, "DB Error");
         }
         
         const user = users ? users[0] : null;
+        console.log("[QUERY 2/2 RESULT] Raw User Data:", users);
 
-        // If user is not found in the User table (e.g., deleted account)
+        // Check if user data exists for the retrieved ID
         if (!user) {
-            console.log(`[QUERY 2/2] RESULT: User NOT Found for user_id ${userId} in User table.`);
+            console.log(`[QUERY 2/2 FAILURE] User ID ${userId} NOT found in User table.`);
             return handleInactive(dbPhoneNumber, "User Data Missing");
         }
 
-        console.log(`[QUERY 2/2] RESULT: User found! Plan Status is '${user.plan_status}'.`);
+        console.log(`[STATUS CHECK] User ID ${userId} found! Plan Status is '${user.plan_status}'.`);
 
         // Plan Status Check (Case-insensitive)
         if (user.plan_status && user.plan_status.toLowerCase() === 'active') {
+            console.log(`[FINAL RESULT] Status ACTIVE. Preparing dashboard link with userId: ${userId}`);
             return {
                 hasActiveSubscription: true,
                 userName: user.name || "Active Subscriber",
                 subscriptionStatus: "Verified",
-                dashboardLink: `/user/dashboard/${userId}`, // 🚨 IMPORTANT: Now using user_id in the link
+                dashboardLink: `/user/dashboard/${userId}`, // Using user_id for dashboard link
                 ticket: "Active Plan Call"
             };
         }
 
         // Default: Inactive Plan Status
-        console.log(`[QUERY 2/2] RESULT: User ${userId} is INACTIVE.`);
+        console.log(`[FINAL RESULT] Status INACTIVE. Returning inactive handler.`);
         return handleInactive(dbPhoneNumber, user.name || "Inactive Subscriber");
         
     } catch (e) {
-        console.error("Supabase lookup exception:", e.message);
+        console.error("[LOOKUP EXCEPTION] General Supabase lookup exception:", e.message);
         return handleInactive(dbPhoneNumber, "System Error");
     }
 };
