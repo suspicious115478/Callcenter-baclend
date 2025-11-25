@@ -84,7 +84,7 @@ const fetchUserAndAddressData = async (userId) => {
     // Note: The frontend expects 'address_line' and uses the address text directly as the selected option value.
     const { data: addresses, error: addressError } = await supabase
         .from('Address')
-        .select('address_line, id') 
+        .select('address_line') // <<< CORRECTED: Only selecting 'address_line' as requested.
         .eq('user_id', userId);
         
     if (addressError) {
