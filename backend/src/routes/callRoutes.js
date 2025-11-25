@@ -13,6 +13,7 @@ router.get("/incoming", getIncomingCall(io));
 
 // 🚨 NEW ROUTE: POST endpoint for creating a support ticket from the agent dashboard
 // This maps to the createTicket function in the controller
-router.post("/call/ticket", createTicket);
+router.post("/ticket", createTicket);
 
 module.exports = router;
+
