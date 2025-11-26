@@ -271,7 +271,7 @@ exports.getAddressByUserId = async (req, res) => {
         const { data: addresses, error } = await supabase
             .from('Address')
             // 🎯 CRITICAL FIX: Explicitly include 'id' in the select statement
-            .select('user_id, address_line') 
+            .select('address_id, user_id, address_line') 
             .eq('user_id', userId); 
 
         // 2. Error Handling Log (Supabase Error)
@@ -303,4 +303,5 @@ exports.getAddressByUserId = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during address lookup.' });
     }
 };
+
 
