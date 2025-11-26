@@ -267,7 +267,7 @@ exports.getAddressByUserId = async (req, res) => {
         // --- QUERY: Fetch addresses using the user_id ---
         const { data: addresses, error } = await supabase
             .from('Address')
-            .select('id, address_line') // Ensure column names are correct
+            .select('user_id, address_line') // Ensure column names are correct
             .eq('user_id', userId); 
 
         // 2. Error Handling Log (Supabase Error)
@@ -302,3 +302,4 @@ exports.getAddressByUserId = async (req, res) => {
 };
 // Note: You must now map exports.getAddressByUserId to a route like /call/address/:userId 
 // in your main Express/Node app file (e.g., app.js or routes file).
+
