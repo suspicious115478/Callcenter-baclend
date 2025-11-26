@@ -11,10 +11,13 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    // Log error during startup
+    console.error("FATAL ERROR: Missing main Supabase credentials.");
     throw new Error("Missing main Supabase credentials in environment variables.");
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+console.log("Main Supabase client initialized.");
 
 // ----------------------------------------------------------------------
 // LOGGING SUPABASE INITIALIZATION (For Ticket Creation/Call Logs)
@@ -53,7 +56,6 @@ const handleInactive = (dbPhoneNumber, name) => ({
  * in 'AllowedNumber' and then checking the 'plan_status' in the 'User' table.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
-    // ... (This function remains unchanged from original)
     // Normalization to keep ALL digits (including country code).
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
     
@@ -136,20 +138,15 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 
 /**
  * Main handler for the incoming call webhook.
- * 🚨 CRITICAL UPDATE: Checks agent status and blocks call if offline.
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
-    // ... (This function remains unchanged from original)
     // 🚨 EXTENSIVE LOGGING: Check Agent Status 
-    // This calls the getter function which should also log the status it reads (in agentController.js)
     const currentAgentStatus = agentController.getRawStatus(); 
     
-    // 🚨 Log the decision point
     console.log(`[CALL BLOCK CHECK] Call received. Agent Status read as: ${currentAgentStatus}`);
     
     if (currentAgentStatus === 'offline') {
-        // Log the block and respond successfully to the caller (e.g., Twilio)
-        console.warn("[CALL BLOCKED SUCCESS] Agent is confirmed OFFLINE. Call processing stopped before lookup and socket emit.");
+        console.warn("[CALL BLOCKED SUCCESS] Agent is confirmed OFFLINE. Call processing stopped.");
         
         return res.status(200).json({ 
             message: "Agent is offline. Call routed to queue or voicemail.", 
@@ -161,8 +158,10 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     console.log("[CALL PROCEED] Agent is ONLINE. Continuing with user lookup and socket emit.");
 
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
+    console.log(`[CALL DATA] Extracting incoming number: ${incomingNumber}`);
     
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
+    console.log("[CALL DATA] User subscription check completed. Result:", userData.subscriptionStatus);
     
     const callData = {
         caller: incomingNumber,
@@ -192,7 +191,6 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
  * Handles saving agent notes as a new ticket in the separate logging database.
  */
 exports.createTicket = async (req, res) => {
-    // ... (This function remains unchanged from original)
     // 1. Check if the logging client was successfully initialized
     if (!logSupabase) {
         console.error('TICKET FAIL: Logging Supabase client is NOT initialized. Check LOG_SUPABASE environment variables.');
@@ -230,7 +228,7 @@ exports.createTicket = async (req, res) => {
             return res.status(500).json({ message: 'Database insertion failed.', details: error.message });
         }
 
-        console.log(`TICKET SUCCESS: Created new ticket ID: ${data[0].id}`);
+        console.log(`TICKET SUCCESS: Created new ticket ID: ${data[0].id}. Returning request details.`);
         
         // 🚨 CRITICAL UPDATE: Return the requestDetails and the new ticket ID for frontend redirection
         res.status(201).json({ 
@@ -259,35 +257,35 @@ exports.getAddressByUserId = async (req, res) => {
 
     // 1. Initial Validation Log
     if (!userId) {
-        console.error('🚨 [ADDRESS LOOKUP FAIL] Missing userId in request parameters. Request received without ID.');
+        console.error('🚨 [USER ADDRESS LOOKUP FAIL] Missing userId in request parameters. Request received without ID.');
         return res.status(400).json({ message: 'Missing user ID.' });
     }
-    console.log(`[ADDRESS LOOKUP START] Initiating query for user_id: ${userId}`);
+    console.log(`[USER ADDRESS LOOKUP START] Initiating query for addresses belonging to user_id: ${userId}`);
 
     try {
         // --- QUERY: Fetch addresses using the user_id ---
+        console.log(`[USER ADDRESS QUERY] Executing SELECT address_id, user_id, address_line FROM Address WHERE user_id = ${userId}`);
         const { data: addresses, error } = await supabase
             .from('Address')
-            // 🎯 CRITICAL FIX: Explicitly include 'address_id' in the select statement
             .select('address_id, user_id, address_line') 
             .eq('user_id', userId); 
 
         // 2. Error Handling Log (Supabase Error)
         if (error) {
-            console.error("❌ [ADDRESS LOOKUP ERROR] Supabase Address query failed:", error.message);
-            console.error("❌ [ADDRESS LOOKUP ERROR] Supabase Details:", error.details);
+            console.error("❌ [USER ADDRESS LOOKUP ERROR] Supabase Address query failed:", error.message);
+            console.error("❌ [USER ADDRESS LOOKUP ERROR] Supabase Details:", error.details);
             return res.status(500).json({ message: 'Database query failed.', details: error.message });
         }
         
         // 3. Success Log
         const addressCount = addresses ? addresses.length : 0;
-        console.log(`✅ [ADDRESS LOOKUP SUCCESS] Found ${addressCount} addresses for user ${userId}.`);
+        console.log(`✅ [USER ADDRESS LOOKUP SUCCESS] Found ${addressCount} addresses for user ${userId}.`);
 
         // 4. Data Inspection Log
         if (addressCount > 0) {
-            console.log("🔍 [ADDRESS DATA PREVIEW] First address fetched:", addresses[0]);
+            console.log("🔍 [USER ADDRESS DATA PREVIEW] First address fetched:", addresses[0]);
         } else {
-            console.warn("⚠️ [ADDRESS DATA EMPTY] Query returned zero results. Check data or RLS policy for 'Address' table.");
+            console.warn("⚠️ [USER ADDRESS DATA EMPTY] Query returned zero results. Check data or RLS policy for 'Address' table.");
         }
 
         res.status(200).json({
@@ -297,53 +295,65 @@ exports.getAddressByUserId = async (req, res) => {
 
     } catch (e) {
         // 5. General Exception Log
-        console.error("🛑 [ADDRESS LOOKUP EXCEPTION] Internal server exception caught:", e.message);
+        console.error("🛑 [USER ADDRESS LOOKUP EXCEPTION] Internal server exception caught:", e.message);
         res.status(500).json({ message: 'Internal server error during address lookup.' });
     }
 };
 
 // ----------------------------------------------------------------------
-// 🎯 NEW FUNCTION: Fetch Address by Address ID
+// 🎯 NEW FUNCTION: Fetch Address by Address ID (Target of the 404 Error)
 // ----------------------------------------------------------------------
 
 /**
- * Fetches the specific address_line for a given address_id.
- */
+ * Fetches the specific address_line for a given address_id.
+ */
 exports.getAddressByAddressId = async (req, res) => {
-    // Get the addressId from the URL parameters
-    const { addressId } = req.params; 
+    // Get the addressId from the URL parameters
+    const { addressId } = req.params; 
 
-    if (!addressId) {
-        console.error('🚨 [ADDRESS FETCH FAIL] Missing addressId in request parameters.');
-        return res.status(400).json({ message: 'Missing address ID.' });
-    }
-    console.log(`[ADDRESS FETCH START] Initiating query for address_id: ${addressId}`);
+    // 1. Initial Validation Log
+    if (!addressId) {
+        console.error('🚨 [ADDRESS FETCH FAIL] Missing addressId in request parameters.');
+        return res.status(400).json({ message: 'Missing address ID.' });
+    }
+    console.log(`[ADDRESS FETCH START] Initiating lookup for specific address_id: ${addressId}`);
 
-    try {
-        // --- QUERY: Fetch the address line using the address_id ---
-        const { data: address, error } = await supabase
-            .from('Address')
-            .select('address_line') // Only need the address line
-            .eq('address_id', addressId) // Query using the specific address_id
-            .limit(1); // Expect only one result
+    try {
+        // --- QUERY: Fetch the address line using the address_id ---
+        console.log(`[ADDRESS FETCH QUERY] Executing SELECT address_line FROM Address WHERE address_id = ${addressId}`);
+        const { data: address, error } = await supabase
+            .from('Address')
+            .select('address_line') // Only need the address line
+            .eq('address_id', addressId) // Query using the specific address_id
+            .limit(1); // Expect only one result
 
-        if (error) {
-            console.error("❌ [ADDRESS FETCH ERROR] Supabase Address query failed:", error.message);
-            return res.status(500).json({ message: 'Database query failed.', details: error.message });
-        }
-        
-        // Safely extract address_line, defaulting to 'Address not found.'
-        const addressLine = address?.[0]?.address_line || 'Address not found.';
-        
-        console.log(`✅ [ADDRESS FETCH SUCCESS] Retrieved address for ID ${addressId}: ${addressLine}`);
+        // 2. Error Handling Log (Supabase Error)
+        if (error) {
+            console.error("❌ [ADDRESS FETCH ERROR] Supabase Address query failed:", error.message);
+            console.error("❌ [ADDRESS FETCH ERROR] Supabase Details:", error.details);
+            return res.status(500).json({ message: 'Database query failed.', details: error.message });
+        }
+        
+        // 3. Data Check and Extraction
+        if (!address || address.length === 0) {
+            console.warn(`⚠️ [ADDRESS FETCH 404] No address found in database for ID: ${addressId}. Returning 404.`);
+            // IMPORTANT: We return a 404 here if the data isn't found in the DB, 
+            // but the frontend 404 is still likely the routing issue.
+            return res.status(404).json({ message: `Address ID ${addressId} not found in database.` });
+        }
 
-        res.status(200).json({
-            message: 'Address fetched successfully.',
-            address_line: addressLine
-        });
+        const addressLine = address[0].address_line;
+        
+        console.log(`✅ [ADDRESS FETCH SUCCESS] Retrieved address for ID ${addressId}: ${addressLine}`);
 
-    } catch (e) {
-        console.error("🛑 [ADDRESS FETCH EXCEPTION] Internal server exception caught:", e.message);
-        res.status(500).json({ message: 'Internal server error during address lookup.' });
-    }
+        res.status(200).json({
+            message: 'Address fetched successfully.',
+            address_line: addressLine
+        });
+
+    } catch (e) {
+        // 4. General Exception Log
+        console.error("🛑 [ADDRESS FETCH EXCEPTION] Internal server exception caught:", e.message);
+        res.status(500).json({ message: 'Internal server error during address lookup.' });
+    }
 };
