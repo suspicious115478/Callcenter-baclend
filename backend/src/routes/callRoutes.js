@@ -19,4 +19,7 @@ router.post("/ticket", createTicket);
 // Maps to the new getAddressByUserId function in the controller
 router.get("/address/:userId", getAddressByUserId);
 
+router.get('/address/details/:addressId', callController.getAddressDetailsById);
+
 module.exports = router;
+
