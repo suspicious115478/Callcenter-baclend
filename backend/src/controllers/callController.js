@@ -48,9 +48,11 @@ const handleInactive = (dbPhoneNumber, name) => ({
 });
 
 
+// ----------------------------------------------------------------------
+// 🚨 UPDATED FUNCTION: checkSubscriptionStatus
+// ----------------------------------------------------------------------
 /**
- * Checks the subscription status of a phone number by first looking up the user_id
- * in 'AllowedNumber' and then checking the 'plan_status' in the 'User' table.
+ * Checks the subscription status and fetches the associated phone number.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     
@@ -60,12 +62,12 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
     console.log(`[SUBSCRIPTION CHECK] Starting lookup for incoming number: ${phoneNumber}. Normalized DB format: ${dbPhoneNumber}`);
 
     try {
-        // --- STEP 1: Query the 'AllowedNumber' table for the user_id ---
+        // --- STEP 1: Query the 'AllowedNumber' table for the user_id AND phone_number ---
         console.log(`[QUERY 1/2 - AllowedNumber] Searching 'AllowedNumber' table for phone: ${dbPhoneNumber}`);
         
         const { data: allowedNumbers, error: allowedError } = await supabase
             .from('AllowedNumber')
-            .select('user_id') 
+            .select('user_id, phone_number') // 🔑 UPDATED: SELECT phone_number
             .eq('phone_number', dbPhoneNumber) 
             .limit(1);
 
@@ -83,7 +85,9 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         }
 
         const userId = allowedEntry.user_id;
-        console.log(`[QUERY 1/2 SUCCESS] Retrieved user_id: ${userId}`);
+        // 🔑 Store the phone number retrieved from the DB entry
+        const actualPhoneNumber = allowedEntry.phone_number; 
+        console.log(`[QUERY 1/2 SUCCESS] Retrieved user_id: ${userId}, Phone: ${actualPhoneNumber}`);
 
 
         // --- STEP 2: Query the 'User' table using the retrieved user_id ---
@@ -92,7 +96,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         const { data: users, error: userError } = await supabase
             .from('User')
             .select('plan_status, name') 
-            .eq('user_id', userId) // Queries for the user using the user_id
+            .eq('user_id', userId)
             .limit(1);
 
         if (userError) {
@@ -119,38 +123,42 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
                 userName: user.name || "Active Subscriber",
                 subscriptionStatus: "Verified",
                 dashboardLink: `/user/dashboard/${userId}`, // Using user_id for dashboard link
-                ticket: "Active Plan Call"
+                ticket: "Active Plan Call",
+                // 🔑 NEW: Include the phone number in the successful result object
+                phoneNumber: actualPhoneNumber 
             };
         }
 
         // Default: Inactive Plan Status
+        const inactiveResult = handleInactive(dbPhoneNumber, user.name || "Inactive Subscriber");
+        // Ensure inactive result still carries the phone number if available
+        inactiveResult.phoneNumber = actualPhoneNumber; 
         console.log(`[FINAL RESULT] Status INACTIVE. Returning inactive handler.`);
-        return handleInactive(dbPhoneNumber, user.name || "Inactive Subscriber");
+        return inactiveResult; 
         
     } catch (e) {
         console.error("[LOOKUP EXCEPTION] General Supabase lookup exception:", e.message);
-        return handleInactive(dbPhoneNumber, "System Error");
+        // Include the phone number in the error result for logging/display
+        return { ...handleInactive(dbPhoneNumber, "System Error"), phoneNumber: dbPhoneNumber };
     }
 };
 
 
+// ----------------------------------------------------------------------
+// 🚨 UPDATED FUNCTION: getIncomingCall
+// ----------------------------------------------------------------------
 /**
  * Main handler for the incoming call webhook.
- * 🚨 CRITICAL UPDATE: Checks agent status and blocks call if offline.
+ * Checks agent status and blocks call if offline.
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     
-    // 🚨 EXTENSIVE LOGGING: Check Agent Status 
-    // This calls the getter function which should also log the status it reads (in agentController.js)
+    // ... (Agent status check remains the same)
     const currentAgentStatus = agentController.getRawStatus(); 
-    
-    // 🚨 Log the decision point
     console.log(`[CALL BLOCK CHECK] Call received. Agent Status read as: ${currentAgentStatus}`);
     
     if (currentAgentStatus === 'offline') {
-        // Log the block and respond successfully to the caller (e.g., Twilio)
         console.warn("[CALL BLOCKED SUCCESS] Agent is confirmed OFFLINE. Call processing stopped before lookup and socket emit.");
-        
         return res.status(200).json({ 
             message: "Agent is offline. Call routed to queue or voicemail.", 
             status: "Agent Offline" 
@@ -162,6 +170,7 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
 
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
     
+    // userData now contains the phoneNumber property
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
     
     const callData = {
@@ -170,13 +179,15 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         subscriptionStatus: userData.subscriptionStatus,
         dashboardLink: userData.dashboardLink,
         ticket: userData.ticket,
-        isExistingUser: userData.hasActiveSubscription
+        isExistingUser: userData.hasActiveSubscription,
+        // 🔑 NEW: Include the fetched phone number for the client to use in the dashboard
+        phoneNumber: userData.phoneNumber || incomingNumber
     };
     
     const ioInstance = ioInstanceGetter();
     if (ioInstance) {
         console.log(`[SOCKET EMIT] Status: ${callData.subscriptionStatus}. Emitting call data...`);
-        ioInstance.emit("incoming-call", callData); // This only runs if status is 'online'
+        ioInstance.emit("incoming-call", callData); // Sending updated callData
     } else {
         console.warn("Socket.IO instance not available via getter.");
     }
@@ -188,9 +199,10 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     });
 };
 
-/**
- * Handles saving agent notes as a new ticket in the separate logging database.
- */
+// ----------------------------------------------------------------------
+// createTicket (Remains correct as it expects the phoneNumber in the body)
+// ----------------------------------------------------------------------
+
 exports.createTicket = async (req, res) => {
     // 1. Check if the logging client was successfully initialized
     if (!logSupabase) {
@@ -210,7 +222,7 @@ exports.createTicket = async (req, res) => {
         console.log(`TICKET LOG: Attempting to create ticket for ${phoneNumber} by ${activeAgentId}...`);
         
         const { data, error } = await logSupabase
-            .from('tickets') // ASSUMING your table is named 'tickets' in the logging Supabase DB
+            .from('tickets') 
             .insert([
                 { 
                     phone_number: phoneNumber,
@@ -220,78 +232,71 @@ exports.createTicket = async (req, res) => {
                     created_at: new Date().toISOString(),
                 },
             ])
-            .select('id'); // Selects the ID of the new ticket
+            .select('id'); 
 
         if (error) {
-            // 🚨 CRITICAL LOGGING: Print the exact Supabase error message
             console.error('TICKET FAIL: Supabase Insertion Error:', error.message);
-            // This error often indicates a missing table, column mismatch, or security rule violation.
             return res.status(500).json({ message: 'Database insertion failed.', details: error.message });
         }
 
         console.log(`TICKET SUCCESS: Created new ticket ID: ${data[0].id}`);
         
-        // 🚨 CRITICAL UPDATE: Return the requestDetails and the new ticket ID for frontend redirection
+        // Return the requestDetails and the new ticket ID for frontend redirection
         res.status(201).json({ 
             message: 'Ticket created successfully.', 
             ticket_id: data[0].id,
-            requestDetails: requestDetails // Send the notes back for the next page
+            requestDetails: requestDetails 
         });
 
     } catch (err) {
-        // 🚨 CRITICAL LOGGING: Catch unexpected server errors
         console.error('TICKET FAIL: Internal Server Exception:', err.message);
         res.status(500).json({ message: 'Internal server error during ticket creation.' });
     }
 };
 
 // ----------------------------------------------------------------------
-// 🚀 UPDATED FUNCTION: Fetch Addresses for a User with EXTENSIVE LOGGING
+// getAddressByUserId (Remains the same)
 // ----------------------------------------------------------------------
 
-/**
- * Fetches all address_line entries from the 'Address' table for a given user_id.
- */
 exports.getAddressByUserId = async (req, res) => {
     // Get the user_id from the URL parameters
     const { userId } = req.params; 
 
-    // 1. Initial Validation Log
+    // 1. Initial Validation Log
     if (!userId) {
         console.error('🚨 [ADDRESS LOOKUP FAIL] Missing userId in request parameters. Request received without ID.');
         return res.status(400).json({ message: 'Missing user ID.' });
     }
-    console.log(`[ADDRESS LOOKUP START] Initiating query for user_id: ${userId}`);
+    console.log(`[ADDRESS LOOKUP START] Initiating query for user_id: ${userId}`);
 
     try {
         // --- QUERY: Fetch addresses using the user_id ---
         const { data: addresses, error } = await supabase
             .from('Address')
-            .select('user_id, address_line') // Ensure column names are correct
-            .eq('user_id', userId); 
+            .select('user_id, address_line') 
+            .eq('user_id', userId); 
 
-        // 2. Error Handling Log (Supabase Error)
+        // 2. Error Handling Log (Supabase Error)
         if (error) {
             console.error("❌ [ADDRESS LOOKUP ERROR] Supabase Address query failed:", error.message);
-            console.error("❌ [ADDRESS LOOKUP ERROR] Supabase Details:", error.details);
-            // This error often indicates RLS blocking the read, or an incorrect table/column name.
+            console.error("❌ [ADDRESS LOOKUP ERROR] Supabase Details:", error.details);
             return res.status(500).json({ message: 'Database query failed.', details: error.message });
         }
         
-        // 3. Success Log
-        const addressCount = addresses ? addresses.length : 0;
+        // 3. Success Log
+        const addressCount = addresses ? addresses.length : 0;
         console.log(`✅ [ADDRESS LOOKUP SUCCESS] Found ${addressCount} addresses for user ${userId}.`);
 
-        // 4. Data Inspection Log
-        if (addressCount > 0) {
-            console.log("🔍 [ADDRESS DATA PREVIEW] First address fetched:", addresses[0].address_line);
-        } else {
-            console.warn("⚠️ [ADDRESS DATA EMPTY] Query returned zero results. Check data or RLS policy for 'Address' table.");
-        }
+        // 4. Data Inspection Log
+        if (addressCount > 0) {
+            console.log("🔍 [ADDRESS DATA PREVIEW] First address fetched:", addresses[0].address_line);
+        } else {
+            console.warn("⚠️ [ADDRESS DATA EMPTY] Query returned zero results. Check data or RLS policy for 'Address' table.");
+        }
 
         res.status(200).json({
             message: 'Addresses fetched successfully.',
-            addresses: addresses || [] // Ensure it returns an array
+            addresses: addresses || [] 
         });
 
     } catch (e) {
@@ -300,6 +305,3 @@ exports.getAddressByUserId = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during address lookup.' });
     }
 };
-// Note: You must now map exports.getAddressByUserId to a route like /call/address/:userId 
-// in your main Express/Node app file (e.g., app.js or routes file).
-
