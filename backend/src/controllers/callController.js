@@ -324,12 +324,12 @@ exports.getAvailableServicemen = async (req, res) => {
         // 3. Database Query
         // Assuming table name is 'employees'. Replace if different (e.g., 'servicemen').
         const { data, error } = await empSupabase
-            .from('users') 
-            .select('id, name, rating, distance, vehicle, interested_services, is_active')
+            .from('services') 
+            .select('id, user_id, category, is_active')
             // Filter 1: Must be Active
             .eq('is_active', true)
             // Filter 2: Service must be in their list (Case-insensitive partial match)
-            .ilike('interested_services', `%${service}%`);
+            .ilike('category', `%${service}%`);
 
         if (error) {
             console.error("❌ [SERVICEMEN DB ERROR]", error.message);
@@ -347,4 +347,5 @@ exports.getAvailableServicemen = async (req, res) => {
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
+
 
