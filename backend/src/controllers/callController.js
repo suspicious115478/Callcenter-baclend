@@ -36,7 +36,7 @@ if (LOG_SUPABASE_URL && LOG_SUPABASE_ANON_KEY) {
 }
 
 // ======================================================================
-// 3. EMPLOYEE SUPABASE (Servicemen Lookup) 🚀 NEW
+// 3. EMPLOYEE SUPABASE (Servicemen Lookup/Dispatch) 🚀 CRITICAL
 // ======================================================================
 const EMP_SUPABASE_URL = process.env.EMP_SUPABASE_URL;
 const EMP_SUPABASE_ANON_KEY = process.env.EMP_SUPABASE_ANON_KEY;
@@ -50,7 +50,7 @@ if (EMP_SUPABASE_URL && EMP_SUPABASE_ANON_KEY) {
         console.error("❌ Failed to initialize Employee Supabase client:", e.message);
     }
 } else {
-    console.warn("⚠️ Missing EMP_SUPABASE credentials. Serviceman lookup will fail.");
+    console.warn("⚠️ Missing EMP_SUPABASE credentials. Serviceman lookup/dispatch will fail.");
 }
 
 // ----------------------------------------------------------------------
@@ -295,13 +295,13 @@ exports.getAddressByAddressId = async (req, res) => {
     }
 };
 
-// ======================================================================
-// 🚀 NEW FUNCTION: Get Available Servicemen (From Employee DB)
-// ======================================================================
+// ----------------------------------------------------------------------
+// EMPLOYEE DB FUNCTIONS
+// ----------------------------------------------------------------------
 
 /**
  * Fetches active servicemen who are interested in the specific service.
- * Query Logic: WHERE is_active = true AND interested_services LIKE '%service%'
+ * Query Logic: WHERE is_active = true AND category ILIKE '%service%'
  */
 exports.getAvailableServicemen = async (req, res) => {
     console.group("🔍 [SERVICEMEN LOOKUP]");
@@ -326,14 +326,12 @@ exports.getAvailableServicemen = async (req, res) => {
 
     try {
         // 3. Database Query
-        // ⚠️ CRITICAL CHECK: Ensure table is 'services' and column 'category' matches your DB
-        // You previously mentioned 'interested_services' in the prompt but code used 'services' table.
-        // I am using 'services' table and 'category' column based on your provided code snippet.
+        // Table: 'services' 
         console.log(`[QUERY] Executing: SELECT * FROM services WHERE is_active=true AND category ILIKE '%${service}%'`);
         
         const { data, error } = await empSupabase
             .from('services') 
-            .select('*') // Selecting all columns to see what we get
+            .select('*') // Selecting all columns
             // Filter 1: Must be Active
             .eq('is_active', true)
             // Filter 2: Service match (Case-insensitive partial match)
@@ -348,11 +346,6 @@ exports.getAvailableServicemen = async (req, res) => {
         // 4. Success Response
         const count = data ? data.length : 0;
         console.log(`✅ [SUCCESS] Found ${count} matching records.`);
-        if (count > 0) {
-            console.log(`[DATA PREVIEW] First record:`, data[0]);
-        } else {
-            console.warn(`[WARNING] Query returned 0 results. Check if table 'services' has data matching '${service}'.`);
-        }
         
         console.groupEnd();
         res.status(200).json(data || []);
@@ -364,6 +357,73 @@ exports.getAvailableServicemen = async (req, res) => {
     }
 };
 
+// ======================================================================
+// 🚀 NEW FUNCTION: Dispatch Serviceman (Insert into Employee DB Dispatch Table)
+// ======================================================================
 
+/**
+ * Creates a new dispatch record in the Employee Supabase Dispatch table.
+ * @param {object} req.body - Contains technician_user_id, category, request_address, order_request, etc.
+ */
+exports.dispatchServiceman = async (req, res) => {
+    console.group("📝 [DISPATCH NEW JOB]");
 
+    // 1. Initialization Check
+    if (!empSupabase) {
+        console.error("❌ [ERROR] Employee DB not configured.");
+        console.groupEnd();
+        return res.status(500).json({ message: 'Employee database unavailable for dispatch.' });
+    }
 
+    // 2. Extract Data from Request Body
+    const dispatchData = req.body;
+    console.log("[INFO] Dispatch Data received:", dispatchData);
+
+    // 3. Validation
+    const requiredFields = ['technician_user_id', 'category', 'request_address', 'order_status', 'order_request'];
+    const missingFields = requiredFields.filter(field => !dispatchData[field]);
+    
+    if (missingFields.length > 0) {
+        console.error("⚠️ [ERROR] Missing required dispatch fields:", missingFields.join(', '));
+        console.groupEnd();
+        return res.status(400).json({ message: 'Missing required dispatch data.', missingFields });
+    }
+
+    try {
+        // 4. Insert into 'Dispatch' table in the Employee DB
+        // Add timestamp for logging
+        const dataToInsert = {
+            ...dispatchData,
+            dispatched_at: new Date().toISOString(),
+            // Ensure status defaults to a known value if not provided, though it's required by validation.
+            order_status: dispatchData.order_status || 'Assigned' 
+        };
+
+        const { data, error } = await empSupabase
+            .from('Dispatch') // ⚠️ Ensure this table name is correct in your Employee DB
+            .insert([dataToInsert])
+            .select('*');
+
+        if (error) {
+            console.error("❌ [SUPABASE ERROR]", JSON.stringify(error, null, 2));
+            console.groupEnd();
+            return res.status(500).json({ message: 'Database dispatch insert failed.', details: error.message });
+        }
+
+        // 5. Success Response
+        const newDispatchId = data[0]?.id || 'N/A';
+        console.log(`✅ [SUCCESS] New Dispatch record created with ID: ${newDispatchId}`);
+        
+        console.groupEnd();
+        res.status(201).json({
+            message: 'Serviceman successfully dispatched.',
+            dispatch_id: newDispatchId,
+            details: data[0]
+        });
+
+    } catch (e) {
+        console.error("🛑 [EXCEPTION]", e.message);
+        console.groupEnd();
+        res.status(500).json({ message: 'Internal server error during dispatch.' });
+    }
+};
