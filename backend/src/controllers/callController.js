@@ -304,48 +304,66 @@ exports.getAddressByAddressId = async (req, res) => {
  * Query Logic: WHERE is_active = true AND interested_services LIKE '%service%'
  */
 exports.getAvailableServicemen = async (req, res) => {
+    console.group("🔍 [SERVICEMEN LOOKUP]");
+    
     // 1. Initialization Check
     if (!empSupabase) {
-        console.error("❌ [SERVICEMEN FETCH FAIL] Employee DB not configured.");
+        console.error("❌ [ERROR] Employee DB not configured (env vars missing).");
+        console.groupEnd();
         return res.status(500).json({ message: 'Employee database unavailable.' });
     }
 
-    const { service } = req.body; // Expecting { "service": "Driver" }
+    const { service } = req.body; 
+    console.log(`[INFO] Request Body received:`, req.body);
+    console.log(`[INFO] Searching for service: '${service}'`);
 
     // 2. Validation
     if (!service) {
-        console.error("⚠️ [SERVICEMEN FETCH FAIL] No service specified in body.");
+        console.error("⚠️ [ERROR] No service specified.");
+        console.groupEnd();
         return res.status(400).json({ message: 'Service type is required.' });
     }
 
-    console.log(`🔍 [SERVICEMEN FETCH START] Searching for active '${service}'...`);
-
     try {
         // 3. Database Query
-        // Assuming table name is 'employees'. Replace if different (e.g., 'servicemen').
+        // ⚠️ CRITICAL CHECK: Ensure table is 'services' and column 'category' matches your DB
+        // You previously mentioned 'interested_services' in the prompt but code used 'services' table.
+        // I am using 'services' table and 'category' column based on your provided code snippet.
+        console.log(`[QUERY] Executing: SELECT * FROM services WHERE is_active=true AND category ILIKE '%${service}%'`);
+        
         const { data, error } = await empSupabase
             .from('services') 
-            .select('id, user_id, category, is_active')
+            .select('*') // Selecting all columns to see what we get
             // Filter 1: Must be Active
             .eq('is_active', true)
-            // Filter 2: Service must be in their list (Case-insensitive partial match)
+            // Filter 2: Service match (Case-insensitive partial match)
             .ilike('category', `%${service}%`);
 
         if (error) {
-            console.error("❌ [SERVICEMEN DB ERROR]", error.message);
+            console.error("❌ [SUPABASE ERROR]", JSON.stringify(error, null, 2));
+            console.groupEnd();
             return res.status(500).json({ message: 'Database query failed.', details: error.message });
         }
 
         // 4. Success Response
         const count = data ? data.length : 0;
-        console.log(`✅ [SERVICEMEN FETCH SUCCESS] Found ${count} matching records.`);
+        console.log(`✅ [SUCCESS] Found ${count} matching records.`);
+        if (count > 0) {
+            console.log(`[DATA PREVIEW] First record:`, data[0]);
+        } else {
+            console.warn(`[WARNING] Query returned 0 results. Check if table 'services' has data matching '${service}'.`);
+        }
         
+        console.groupEnd();
         res.status(200).json(data || []);
 
     } catch (e) {
-        console.error("🛑 [SERVICEMEN FETCH EXCEPTION]", e.message);
+        console.error("🛑 [EXCEPTION]", e.message);
+        console.groupEnd();
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
+
+
 
 
