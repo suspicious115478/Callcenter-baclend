@@ -400,7 +400,7 @@ exports.dispatchServiceman = async (req, res) => {
         };
 
         const { data, error } = await empSupabase
-            .from('Dispatch') // ⚠️ Ensure this table name is correct in your Employee DB
+            .from('dispatch') // ⚠️ Ensure this table name is correct in your Employee DB
             .insert([dataToInsert])
             .select('*');
 
@@ -427,3 +427,4 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during dispatch.' });
     }
 };
+
