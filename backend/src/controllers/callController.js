@@ -1,359 +1,349 @@
 // backend/src/controllers/callController.js
 
 const { createClient } = require('@supabase/supabase-js');
-const agentController = require('./agentController'); 
+const agentController = require('./agentController'); 
 
-// ----------------------------------------------------------------------
-// MAIN SUPABASE INITIALIZATION (For User/Subscription Lookup)
-// ----------------------------------------------------------------------
-
+// ======================================================================
+// 1. MAIN SUPABASE (User/Subscription Lookup)
+// ======================================================================
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    // Log error during startup
-    console.error("FATAL ERROR: Missing main Supabase credentials.");
-    throw new Error("Missing main Supabase credentials in environment variables.");
+    console.error("FATAL ERROR: Missing main Supabase credentials.");
+    throw new Error("Missing main Supabase credentials in environment variables.");
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 console.log("Main Supabase client initialized.");
 
-// ----------------------------------------------------------------------
-// LOGGING SUPABASE INITIALIZATION (For Ticket Creation/Call Logs)
-// ----------------------------------------------------------------------
-
+// ======================================================================
+// 2. LOGGING SUPABASE (Ticket Creation/Logs)
+// ======================================================================
 const LOG_SUPABASE_URL = process.env.LOG_SUPABASE_URL;
-const LOG_SUPABASE_ANON_KEY = process.env.LOG_SUPABASE_ANON_KEY; 
+const LOG_SUPABASE_ANON_KEY = process.env.LOG_SUPABASE_ANON_KEY; 
 
 let logSupabase = null;
 if (LOG_SUPABASE_URL && LOG_SUPABASE_ANON_KEY) {
-    try {
-        logSupabase = createClient(LOG_SUPABASE_URL, LOG_SUPABASE_ANON_KEY);
-        console.log("Logging Supabase client initialized successfully.");
-    } catch (e) {
-        console.error("Failed to initialize logging Supabase client:", e.message);
-        // Keep logSupabase as null if initialization fails
-    }
+    try {
+        logSupabase = createClient(LOG_SUPABASE_URL, LOG_SUPABASE_ANON_KEY);
+        console.log("Logging Supabase client initialized successfully.");
+    } catch (e) {
+        console.error("Failed to initialize logging Supabase client:", e.message);
+    }
 } else {
-    console.warn("Missing LOG_SUPABASE credentials (LOG_SUPABASE_URL or LOG_SUPABASE_ANON_KEY). Ticket creation will be disabled.");
+    console.warn("Missing LOG_SUPABASE credentials. Ticket creation will be disabled.");
 }
 
-/**
- * Helper function for handling inactive/non-existent users.
- */
+// ======================================================================
+// 3. EMPLOYEE SUPABASE (Servicemen Lookup) 🚀 NEW
+// ======================================================================
+const EMP_SUPABASE_URL = process.env.EMP_SUPABASE_URL;
+const EMP_SUPABASE_ANON_KEY = process.env.EMP_SUPABASE_ANON_KEY;
+
+let empSupabase = null;
+if (EMP_SUPABASE_URL && EMP_SUPABASE_ANON_KEY) {
+    try {
+        empSupabase = createClient(EMP_SUPABASE_URL, EMP_SUPABASE_ANON_KEY);
+        console.log("✅ Employee Supabase client initialized successfully.");
+    } catch (e) {
+        console.error("❌ Failed to initialize Employee Supabase client:", e.message);
+    }
+} else {
+    console.warn("⚠️ Missing EMP_SUPABASE credentials. Serviceman lookup will fail.");
+}
+
+// ----------------------------------------------------------------------
+// HELPER FUNCTIONS
+// ----------------------------------------------------------------------
+
 const handleInactive = (dbPhoneNumber, name) => ({
-    hasActiveSubscription: false,
-    userName: name,
-    subscriptionStatus: "None", 
-    dashboardLink: `/new-call/search?caller=${dbPhoneNumber}`, 
-    ticket: "New Call - Search Required"
+    hasActiveSubscription: false,
+    userName: name,
+    subscriptionStatus: "None", 
+    dashboardLink: `/new-call/search?caller=${dbPhoneNumber}`, 
+    ticket: "New Call - Search Required"
 });
 
+// ----------------------------------------------------------------------
+// CONTROLLER FUNCTIONS
+// ----------------------------------------------------------------------
 
 /**
- * Checks the subscription status of a phone number by first looking up the user_id
- * in 'AllowedNumber' and then checking the 'plan_status' in the 'User' table.
- */
+ * Checks the subscription status of a phone number.
+ */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
-    // Normalization to keep ALL digits (including country code).
-    const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    
-    console.log(`[SUBSCRIPTION CHECK] Starting lookup for incoming number: ${phoneNumber}. Normalized DB format: ${dbPhoneNumber}`);
+    const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+    console.log(`[SUBSCRIPTION CHECK] Lookup for: ${phoneNumber} (DB: ${dbPhoneNumber})`);
 
-    try {
-        // --- STEP 1: Query the 'AllowedNumber' table for the user_id ---
-        console.log(`[QUERY 1/2 - AllowedNumber] Searching 'AllowedNumber' table for phone: ${dbPhoneNumber}`);
-        
-        const { data: allowedNumbers, error: allowedError } = await supabase
-            .from('AllowedNumber')
-            .select('user_id') 
-            .eq('phone_number', dbPhoneNumber) 
-            .limit(1);
+    try {
+        // STEP 1: Check AllowedNumber
+        const { data: allowedNumbers, error: allowedError } = await supabase
+            .from('AllowedNumber')
+            .select('user_id') 
+            .eq('phone_number', dbPhoneNumber) 
+            .limit(1);
 
-        if (allowedError) {
-            console.error("[QUERY 1/2 ERROR] Supabase AllowedNumber query error:", allowedError.message);
-            return handleInactive(dbPhoneNumber, "DB Error");
-        }
+        if (allowedError) {
+            console.error("[QUERY 1/2 ERROR]", allowedError.message);
+            return handleInactive(dbPhoneNumber, "DB Error");
+        }
 
-        const allowedEntry = allowedNumbers ? allowedNumbers[0] : null;
-        console.log("[QUERY 1/2 RESULT] Raw AllowedNumber Data:", allowedNumbers);
+        const allowedEntry = allowedNumbers ? allowedNumbers[0] : null;
 
-        if (!allowedEntry || !allowedEntry.user_id) {
-            console.log(`[QUERY 1/2 FAILURE] Phone number ${dbPhoneNumber} NOT found in AllowedNumber table. Treating as Unrecognized Caller.`);
-            return handleInactive(dbPhoneNumber, "Unrecognized Caller");
-        }
+        if (!allowedEntry || !allowedEntry.user_id) {
+            console.log(`[QUERY 1/2 FAILURE] Number not found.`);
+            return handleInactive(dbPhoneNumber, "Unrecognized Caller");
+        }
 
-        const userId = allowedEntry.user_id;
-        console.log(`[QUERY 1/2 SUCCESS] Retrieved user_id: ${userId}`);
+        const userId = allowedEntry.user_id;
 
+        // STEP 2: Check User Table
+        const { data: users, error: userError } = await supabase
+            .from('User')
+            .select('plan_status, name') 
+            .eq('user_id', userId)
+            .limit(1);
 
-        // --- STEP 2: Query the 'User' table using the retrieved user_id ---
-        console.log(`[QUERY 2/2 - User] Searching 'User' table for plan status using user_id: ${userId}`);
+        if (userError) {
+            console.error("[QUERY 2/2 ERROR]", userError.message);
+            return handleInactive(dbPhoneNumber, "DB Error");
+        }
+        
+        const user = users ? users[0] : null;
 
-        const { data: users, error: userError } = await supabase
-            .from('User')
-            .select('plan_status, name') 
-            .eq('user_id', userId) // Queries for the user using the user_id
-            .limit(1);
+        if (!user) {
+            return handleInactive(dbPhoneNumber, "User Data Missing");
+        }
 
-        if (userError) {
-            console.error("[QUERY 2/2 ERROR] Supabase User query error:", userError.message);
-            return handleInactive(dbPhoneNumber, "DB Error");
-        }
-        
-        const user = users ? users[0] : null;
-        console.log("[QUERY 2/2 RESULT] Raw User Data:", users);
+        if (user.plan_status && user.plan_status.toLowerCase() === 'active') {
+            return {
+                hasActiveSubscription: true,
+                userName: user.name || "Active Subscriber",
+                subscriptionStatus: "Verified",
+                dashboardLink: `/user/dashboard/${userId}`,
+                ticket: "Active Plan Call"
+            };
+        }
 
-        // Check if user data exists for the retrieved ID
-        if (!user) {
-            console.log(`[QUERY 2/2 FAILURE] User ID ${userId} NOT found in User table.`);
-            return handleInactive(dbPhoneNumber, "User Data Missing");
-        }
-
-        console.log(`[STATUS CHECK] User ID ${userId} found! Plan Status is '${user.plan_status}'.`);
-
-        // Plan Status Check (Case-insensitive)
-        if (user.plan_status && user.plan_status.toLowerCase() === 'active') {
-            console.log(`[FINAL RESULT] Status ACTIVE. Preparing dashboard link with userId: ${userId}`);
-            return {
-                hasActiveSubscription: true,
-                userName: user.name || "Active Subscriber",
-                subscriptionStatus: "Verified",
-                dashboardLink: `/user/dashboard/${userId}`, // Using user_id for dashboard link
-                ticket: "Active Plan Call"
-            };
-        }
-
-        // Default: Inactive Plan Status
-        console.log(`[FINAL RESULT] Status INACTIVE. Returning inactive handler.`);
-        return handleInactive(dbPhoneNumber, user.name || "Inactive Subscriber");
-        
-    } catch (e) {
-        console.error("[LOOKUP EXCEPTION] General Supabase lookup exception:", e.message);
-        return handleInactive(dbPhoneNumber, "System Error");
-    }
+        return handleInactive(dbPhoneNumber, user.name || "Inactive Subscriber");
+        
+    } catch (e) {
+        console.error("[LOOKUP EXCEPTION]", e.message);
+        return handleInactive(dbPhoneNumber, "System Error");
+    }
 };
 
-
 /**
- * Main handler for the incoming call webhook.
- */
+ * Main handler for the incoming call webhook.
+ */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
-    // 🚨 EXTENSIVE LOGGING: Check Agent Status 
-    const currentAgentStatus = agentController.getRawStatus(); 
-    
-    console.log(`[CALL BLOCK CHECK] Call received. Agent Status read as: ${currentAgentStatus}`);
-    
-    if (currentAgentStatus === 'offline') {
-        console.warn("[CALL BLOCKED SUCCESS] Agent is confirmed OFFLINE. Call processing stopped.");
-        
-        return res.status(200).json({ 
-            message: "Agent is offline. Call routed to queue or voicemail.", 
-            status: "Agent Offline" 
-        });
-    }
+    const currentAgentStatus = agentController.getRawStatus(); 
+    console.log(`[CALL BLOCK CHECK] Agent Status: ${currentAgentStatus}`);
+    
+    if (currentAgentStatus === 'offline') {
+        console.warn("[CALL BLOCKED] Agent OFFLINE.");
+        return res.status(200).json({ 
+            message: "Agent is offline.", 
+            status: "Agent Offline" 
+        });
+    }
 
-    // --- Only proceed if the agent is ONLINE ---
-    console.log("[CALL PROCEED] Agent is ONLINE. Continuing with user lookup and socket emit.");
-
-    const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
-    console.log(`[CALL DATA] Extracting incoming number: ${incomingNumber}`);
-    
-    const userData = await exports.checkSubscriptionStatus(incomingNumber);
-    console.log("[CALL DATA] User subscription check completed. Result:", userData.subscriptionStatus);
-    
-    const callData = {
-        caller: incomingNumber,
-        name: userData.userName,
-        subscriptionStatus: userData.subscriptionStatus,
-        dashboardLink: userData.dashboardLink,
-        ticket: userData.ticket,
-        isExistingUser: userData.hasActiveSubscription
-    };
-    
-    const ioInstance = ioInstanceGetter();
-    if (ioInstance) {
-        console.log(`[SOCKET EMIT] Status: ${callData.subscriptionStatus}. Emitting call data...`);
-        ioInstance.emit("incoming-call", callData); // This only runs if status is 'online'
-    } else {
-        console.warn("Socket.IO instance not available via getter.");
-    }
-    
-    res.status(200).json({
-        message: "Call processed, agent notified.",
-        status: callData.subscriptionStatus,
-        redirect: callData.dashboardLink
-    });
+    console.log("[CALL PROCEED] Agent ONLINE.");
+    const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
+    
+    const userData = await exports.checkSubscriptionStatus(incomingNumber);
+    
+    const callData = {
+        caller: incomingNumber,
+        name: userData.userName,
+        subscriptionStatus: userData.subscriptionStatus,
+        dashboardLink: userData.dashboardLink,
+        ticket: userData.ticket,
+        isExistingUser: userData.hasActiveSubscription
+    };
+    
+    const ioInstance = ioInstanceGetter();
+    if (ioInstance) {
+        console.log(`[SOCKET EMIT] Sending incoming-call...`);
+        ioInstance.emit("incoming-call", callData);
+    }
+    
+    res.status(200).json({
+        message: "Call processed.",
+        status: callData.subscriptionStatus,
+        redirect: callData.dashboardLink
+    });
 };
 
 /**
- * Handles saving agent notes as a new ticket in the separate logging database.
- */
+ * Creates a ticket in the logging DB.
+ */
 exports.createTicket = async (req, res) => {
-    // 1. Check if the logging client was successfully initialized
-    if (!logSupabase) {
-        console.error('TICKET FAIL: Logging Supabase client is NOT initialized. Check LOG_SUPABASE environment variables.');
-        return res.status(500).json({ message: 'Ticket system is offline. Configuration error.' });
-    }
+    if (!logSupabase) {
+        return res.status(500).json({ message: 'Ticket system offline.' });
+    }
 
-    const { phoneNumber, requestDetails } = req.body; 
-    const activeAgentId = req.headers['x-agent-id'] || 'AGENT_001'; 
+    const { phoneNumber, requestDetails } = req.body; 
+    const activeAgentId = req.headers['x-agent-id'] || 'AGENT_001'; 
 
-    if (!phoneNumber || !requestDetails) {
-        console.error('TICKET FAIL: Missing required data (phone or notes).');
-        return res.status(400).json({ message: 'Missing phone number or request details.' });
-    }
+    if (!phoneNumber || !requestDetails) {
+        return res.status(400).json({ message: 'Missing data.' });
+    }
 
-    try {
-        console.log(`TICKET LOG: Attempting to create ticket for ${phoneNumber} by ${activeAgentId}...`);
-        
-        const { data, error } = await logSupabase
-            .from('tickets') // ASSUMING your table is named 'tickets' in the logging Supabase DB
-            .insert([
-                { 
-                    phone_number: phoneNumber,
-                    request_details: requestDetails,
-                    agent_id: activeAgentId, 
-                    status: 'New', 
-                    created_at: new Date().toISOString(),
-                },
-            ])
-            .select('id'); // Selects the ID of the new ticket
+    try {
+        const { data, error } = await logSupabase
+            .from('tickets')
+            .insert([{ 
+                phone_number: phoneNumber,
+                request_details: requestDetails,
+                agent_id: activeAgentId, 
+                status: 'New', 
+                created_at: new Date().toISOString(),
+            }])
+            .select('id');
 
-        if (error) {
-            // 🚨 CRITICAL LOGGING: Print the exact Supabase error message
-            console.error('TICKET FAIL: Supabase Insertion Error:', error.message);
-            // This error often indicates a missing table, column mismatch, or security rule violation.
-            return res.status(500).json({ message: 'Database insertion failed.', details: error.message });
-        }
+        if (error) {
+            console.error('TICKET INSERT ERROR:', error.message);
+            return res.status(500).json({ message: 'DB Error.', details: error.message });
+        }
 
-        console.log(`TICKET SUCCESS: Created new ticket ID: ${data[0].id}. Returning request details.`);
-        
-        // 🚨 CRITICAL UPDATE: Return the requestDetails and the new ticket ID for frontend redirection
-        res.status(201).json({ 
-            message: 'Ticket created successfully.', 
-            ticket_id: data[0].id,
-            requestDetails: requestDetails // Send the notes back for the next page
-        });
+        console.log(`TICKET CREATED: ID ${data[0].id}`);
+        res.status(201).json({ 
+            message: 'Ticket created.', 
+            ticket_id: data[0].id,
+            requestDetails 
+        });
 
-    } catch (err) {
-        // 🚨 CRITICAL LOGGING: Catch unexpected server errors
-        console.error('TICKET FAIL: Internal Server Exception:', err.message);
-        res.status(500).json({ message: 'Internal server error during ticket creation.' });
-    }
+    } catch (err) {
+        console.error('TICKET EXCEPTION:', err.message);
+        res.status(500).json({ message: 'Server Error.' });
+    }
 };
 
-// ----------------------------------------------------------------------
-// 🚀 FIXED FUNCTION: Fetch Addresses including the unique 'id'
-// ----------------------------------------------------------------------
-
 /**
- * Fetches all address_line entries from the 'Address' table for a given user_id.
- */
+ * Fetches all address_line entries for a given user_id.
+ */
 exports.getAddressByUserId = async (req, res) => {
-    // Get the user_id from the URL parameters
-    const { userId } = req.params; 
+    const { userId } = req.params; 
 
-    // 1. Initial Validation Log
-    if (!userId) {
-        console.error('🚨 [USER ADDRESS LOOKUP FAIL] Missing userId in request parameters. Request received without ID.');
-        return res.status(400).json({ message: 'Missing user ID.' });
-    }
-    console.log(`[USER ADDRESS LOOKUP START] Initiating query for addresses belonging to user_id: ${userId}`);
+    if (!userId) return res.status(400).json({ message: 'Missing user ID.' });
+    console.log(`[USER ADDRESS LOOKUP] ID: ${userId}`);
 
-    try {
-        // --- QUERY: Fetch addresses using the user_id ---
-        console.log(`[USER ADDRESS QUERY] Executing SELECT address_id, user_id, address_line FROM Address WHERE user_id = ${userId}`);
-        const { data: addresses, error } = await supabase
-            .from('Address')
-            .select('address_id, user_id, address_line') 
-            .eq('user_id', userId); 
+    try {
+        const { data: addresses, error } = await supabase
+            .from('Address')
+            .select('address_id, user_id, address_line') 
+            .eq('user_id', userId); 
 
-        // 2. Error Handling Log (Supabase Error)
-        if (error) {
-            console.error("❌ [USER ADDRESS LOOKUP ERROR] Supabase Address query failed:", error.message);
-            console.error("❌ [USER ADDRESS LOOKUP ERROR] Supabase Details:", error.details);
-            return res.status(500).json({ message: 'Database query failed.', details: error.message });
-        }
-        
-        // 3. Success Log
-        const addressCount = addresses ? addresses.length : 0;
-        console.log(`✅ [USER ADDRESS LOOKUP SUCCESS] Found ${addressCount} addresses for user ${userId}.`);
+        if (error) {
+            console.error("[USER ADDRESS ERROR]", error.message);
+            return res.status(500).json({ message: 'DB Error', details: error.message });
+        }
+        
+        console.log(`[USER ADDRESS SUCCESS] Count: ${addresses ? addresses.length : 0}`);
+        res.status(200).json({
+            message: 'Addresses fetched.',
+            addresses: addresses || [] 
+        });
 
-        // 4. Data Inspection Log
-        if (addressCount > 0) {
-            console.log("🔍 [USER ADDRESS DATA PREVIEW] First address fetched:", addresses[0]);
-        } else {
-            console.warn("⚠️ [USER ADDRESS DATA EMPTY] Query returned zero results. Check data or RLS policy for 'Address' table.");
-        }
-
-        res.status(200).json({
-            message: 'Addresses fetched successfully.',
-            addresses: addresses || [] // Ensure it returns an array
-        });
-
-    } catch (e) {
-        // 5. General Exception Log
-        console.error("🛑 [USER ADDRESS LOOKUP EXCEPTION] Internal server exception caught:", e.message);
-        res.status(500).json({ message: 'Internal server error during address lookup.' });
-    }
+    } catch (e) {
+        console.error("[USER ADDRESS EXCEPTION]", e.message);
+        res.status(500).json({ message: 'Server Error' });
+    }
 };
 
-// ----------------------------------------------------------------------
-// 🎯 NEW FUNCTION: Fetch Address by Address ID (Target of the 404 Error)
-// ----------------------------------------------------------------------
+/**
+ * Fetches the specific address_line for a given address_id.
+ */
+exports.getAddressByAddressId = async (req, res) => {
+    const { addressId } = req.params; 
+
+    if (!addressId) {
+        return res.status(400).json({ message: 'Missing address ID.' });
+    }
+    console.log(`[ADDRESS FETCH START] ID: ${addressId}`);
+
+    try {
+        const { data: address, error } = await supabase
+            .from('Address')
+            .select('address_line') 
+            .eq('address_id', addressId) 
+            .limit(1); 
+
+        if (error) {
+            console.error("[ADDRESS FETCH ERROR]", error.message);
+            return res.status(500).json({ message: 'DB Error', details: error.message });
+        }
+        
+        if (!address || address.length === 0) {
+            console.warn(`[ADDRESS FETCH 404] ID ${addressId} not found.`);
+            return res.status(404).json({ message: 'Address not found.' });
+        }
+
+        const addressLine = address[0].address_line;
+        console.log(`[ADDRESS FETCH SUCCESS] Line: ${addressLine}`);
+
+        res.status(200).json({
+            message: 'Address fetched.',
+            address_line: addressLine
+        });
+
+    } catch (e) {
+        console.error("[ADDRESS FETCH EXCEPTION]", e.message);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// ======================================================================
+// 🚀 NEW FUNCTION: Get Available Servicemen (From Employee DB)
+// ======================================================================
 
 /**
- * Fetches the specific address_line for a given address_id.
- */
-exports.getAddressByAddressId = async (req, res) => {
-    // Get the addressId from the URL parameters
-    const { addressId } = req.params; 
+ * Fetches active servicemen who are interested in the specific service.
+ * Query Logic: WHERE is_active = true AND interested_services LIKE '%service%'
+ */
+exports.getAvailableServicemen = async (req, res) => {
+    // 1. Initialization Check
+    if (!empSupabase) {
+        console.error("❌ [SERVICEMEN FETCH FAIL] Employee DB not configured.");
+        return res.status(500).json({ message: 'Employee database unavailable.' });
+    }
 
-    // 1. Initial Validation Log
-    if (!addressId) {
-        console.error('🚨 [ADDRESS FETCH FAIL] Missing addressId in request parameters.');
-        return res.status(400).json({ message: 'Missing address ID.' });
-    }
-    console.log(`[ADDRESS FETCH START] Initiating lookup for specific address_id: ${addressId}`);
+    const { service } = req.body; // Expecting { "service": "Driver" }
 
-    try {
-        // --- QUERY: Fetch the address line using the address_id ---
-        console.log(`[ADDRESS FETCH QUERY] Executing SELECT address_line FROM Address WHERE address_id = ${addressId}`);
-        const { data: address, error } = await supabase
-            .from('Address')
-            .select('address_line') // Only need the address line
-            .eq('address_id', addressId) // Query using the specific address_id
-            .limit(1); // Expect only one result
+    // 2. Validation
+    if (!service) {
+        console.error("⚠️ [SERVICEMEN FETCH FAIL] No service specified in body.");
+        return res.status(400).json({ message: 'Service type is required.' });
+    }
 
-        // 2. Error Handling Log (Supabase Error)
-        if (error) {
-            console.error("❌ [ADDRESS FETCH ERROR] Supabase Address query failed:", error.message);
-            console.error("❌ [ADDRESS FETCH ERROR] Supabase Details:", error.details);
-            return res.status(500).json({ message: 'Database query failed.', details: error.message });
-        }
-        
-        // 3. Data Check and Extraction
-        if (!address || address.length === 0) {
-            console.warn(`⚠️ [ADDRESS FETCH 404] No address found in database for ID: ${addressId}. Returning 404.`);
-            // IMPORTANT: We return a 404 here if the data isn't found in the DB, 
-            // but the frontend 404 is still likely the routing issue.
-            return res.status(404).json({ message: `Address ID ${addressId} not found in database.` });
-        }
+    console.log(`🔍 [SERVICEMEN FETCH START] Searching for active '${service}'...`);
 
-        const addressLine = address[0].address_line;
-        
-        console.log(`✅ [ADDRESS FETCH SUCCESS] Retrieved address for ID ${addressId}: ${addressLine}`);
+    try {
+        // 3. Database Query
+        // Assuming table name is 'employees'. Replace if different (e.g., 'servicemen').
+        const { data, error } = await empSupabase
+            .from('employees') 
+            .select('id, name, rating, distance, vehicle, interested_services, is_active')
+            // Filter 1: Must be Active
+            .eq('is_active', true)
+            // Filter 2: Service must be in their list (Case-insensitive partial match)
+            .ilike('interested_services', `%${service}%`);
 
-        res.status(200).json({
-            message: 'Address fetched successfully.',
-            address_line: addressLine
-        });
+        if (error) {
+            console.error("❌ [SERVICEMEN DB ERROR]", error.message);
+            return res.status(500).json({ message: 'Database query failed.', details: error.message });
+        }
 
-    } catch (e) {
-        // 4. General Exception Log
-        console.error("🛑 [ADDRESS FETCH EXCEPTION] Internal server exception caught:", e.message);
-        res.status(500).json({ message: 'Internal server error during address lookup.' });
-    }
+        // 4. Success Response
+        const count = data ? data.length : 0;
+        console.log(`✅ [SERVICEMEN FETCH SUCCESS] Found ${count} matching records.`);
+        
+        res.status(200).json(data || []);
+
+    } catch (e) {
+        console.error("🛑 [SERVICEMEN FETCH EXCEPTION]", e.message);
+        res.status(500).json({ message: 'Internal server error.' });
+    }
 };
