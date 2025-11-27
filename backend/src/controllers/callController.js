@@ -380,7 +380,7 @@ exports.dispatchServiceman = async (req, res) => {
     console.log("[INFO] Dispatch Data received:", dispatchData);
 
     // 3. Validation
-    const requiredFields = ['technician_user_id', 'category', 'request_address', 'order_status', 'order_request'];
+    const requiredFields = ['user_id', 'category', 'request_address', 'order_status', 'order_request'];
     const missingFields = requiredFields.filter(field => !dispatchData[field]);
     
     if (missingFields.length > 0) {
@@ -427,4 +427,5 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during dispatch.' });
     }
 };
+
 
