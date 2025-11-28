@@ -550,7 +550,8 @@ exports.dispatchServiceman = async (req, res) => {
             order_id: order_id,
             user_id: customerUserId, // Customer (guaranteed to be set by Step 2)
             member_id: resolvedMemberId, // Member ID (guaranteed to be set by Step 2)
-            service_category: category,      // Renamed to fit your prompt description
+            service_category: category,   // Renamed to fit your prompt description
+            service_subcategory: category || 'General Service',
             work_description: order_request, // Renamed to fit your prompt description
             order_status: 'Assigned'
         };
@@ -587,3 +588,4 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during full dispatch process.' });
     }
 };
+
