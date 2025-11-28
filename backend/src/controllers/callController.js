@@ -216,7 +216,7 @@ exports.createTicket = async (req, res) => {
     } catch (err) {
         console.error('TICKET EXCEPTION:', err.message);
         res.status(500).json({ message: 'Server Error.' });
-    }<
+    }
 };
 
 /**
@@ -428,3 +428,4 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during dispatch.' });
     }
 };
+
