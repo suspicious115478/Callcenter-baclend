@@ -1,11 +1,11 @@
 const { createClient } = require('@supabase/supabase-js');
-const agentController = require('./agentController'); 
+const agentController = require('./agentController');
 
 // ======================================================================
 // 1. MAIN SUPABASE (User/Subscription Lookup)
 // ======================================================================
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     console.error("FATAL ERROR: Missing main Supabase credentials.");
@@ -19,7 +19,7 @@ console.log("Main Supabase client initialized.");
 // 2. LOGGING SUPABASE (Ticket Creation/Logs)
 // ======================================================================
 const LOG_SUPABASE_URL = process.env.LOG_SUPABASE_URL;
-const LOG_SUPABASE_ANON_KEY = process.env.LOG_SUPABASE_ANON_KEY; 
+const LOG_SUPABASE_ANON_KEY = process.env.LOG_SUPABASE_ANON_KEY;
 
 let logSupabase = null;
 if (LOG_SUPABASE_URL && LOG_SUPABASE_ANON_KEY) {
@@ -68,6 +68,57 @@ const handleInactive = (dbPhoneNumber, name) => ({
 // ----------------------------------------------------------------------
 
 /**
+ * 🚀 NEW: Fetches the userId and member_id from the AllowedNumber table based on phone number.
+ */
+exports.getUserInfoByPhoneNumber = async (req, res) => {
+    const { phoneNumber } = req.params;
+    const dbPhoneNumber = phoneNumber ? phoneNumber.replace(/[^0-9]/g, '') : null;
+    console.log(`[USER INFO LOOKUP] Phone: ${dbPhoneNumber}`);
+
+    if (!dbPhoneNumber) {
+        return res.status(400).json({ message: 'Missing phone number.' });
+    }
+
+    try {
+        // STEP 1: Check AllowedNumber for user_id and member_id
+        const { data: allowedNumbers, error: allowedError } = await supabase
+            .from('AllowedNumber')
+            // ⭐️ Select both user_id and member_id
+            .select('user_id, member_id') 
+            .eq('phone_number', dbPhoneNumber) 
+            .limit(1);
+
+        if (allowedError) {
+            console.error("[USER INFO ERROR]", allowedError.message);
+            return res.status(500).json({ message: 'DB Error', details: allowedError.message });
+        }
+
+        const allowedEntry = allowedNumbers ? allowedNumbers[0] : null;
+
+        if (!allowedEntry) {
+            console.log(`[USER INFO 404] Number not found.`);
+            // Return 404 so the frontend knows the user is unverified/new
+            return res.status(404).json({ message: 'Caller not found in AllowedNumber table.' });
+        }
+
+        console.log(`[USER INFO SUCCESS] UserID: ${allowedEntry.user_id}, MemberID: ${allowedEntry.member_id}`);
+        
+        // Return the extracted IDs
+        res.status(200).json({
+            message: 'User info fetched successfully.',
+            userId: allowedEntry.user_id,
+            memberId: allowedEntry.member_id || 'N/A' // Handle potential null member_id
+        });
+
+    } catch (e) {
+        console.error("[USER INFO EXCEPTION]", e.message);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+---
+
+/**
  * Checks the subscription status of a phone number.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
@@ -78,7 +129,8 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         // STEP 1: Check AllowedNumber
         const { data: allowedNumbers, error: allowedError } = await supabase
             .from('AllowedNumber')
-            .select('user_id') 
+            // ⭐️ Changed select to include member_id, but main logic only uses user_id
+            .select('user_id, member_id') 
             .eq('phone_number', dbPhoneNumber) 
             .limit(1);
 
@@ -95,6 +147,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         }
 
         const userId = allowedEntry.user_id;
+        // const memberId = allowedEntry.member_id; // Added for completeness, but not used in current function return
 
         // STEP 2: Check User Table
         const { data: users, error: userError } = await supabase
@@ -174,6 +227,8 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     });
 };
 
+---
+
 /**
  * Creates a ticket in the logging DB.
  */
@@ -182,7 +237,8 @@ exports.createTicket = async (req, res) => {
         return res.status(500).json({ message: 'Ticket system offline.' });
     }
 
-    const { phoneNumber, requestDetails } = req.body; 
+    // ⭐️ Added userId and memberId extraction from request body for ticket logging
+    const { phoneNumber, requestDetails, userId, memberId } = req.body; 
     const activeAgentId = req.headers['x-agent-id'] || 'AGENT_001'; 
 
     if (!phoneNumber || !requestDetails) {
@@ -198,6 +254,9 @@ exports.createTicket = async (req, res) => {
                 agent_id: activeAgentId, 
                 status: 'New', 
                 created_at: new Date().toISOString(),
+                // ⭐️ NEW FIELDS ADDED TO TICKET
+                user_id: userId,
+                member_id: memberId,
             }])
             .select('id');
 
@@ -218,6 +277,8 @@ exports.createTicket = async (req, res) => {
         res.status(500).json({ message: 'Server Error.' });
     }
 };
+
+---
 
 /**
  * Fetches all address_line entries for a given user_id.
@@ -355,10 +416,6 @@ exports.getAvailableServicemen = async (req, res) => {
     }
 };
 
-// ======================================================================
-// 🚀 NEW FUNCTION: Dispatch Serviceman (Insert into Employee DB Dispatch Table)
-// ======================================================================
-
 /**
  * Creates a new dispatch record in the Employee Supabase Dispatch table.
  * PRIMARY KEY LOGIC: order_id is the key identifier for the dispatch event.
@@ -428,6 +485,3 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during dispatch.' });
     }
 };
-
-
-
