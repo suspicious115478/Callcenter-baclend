@@ -216,7 +216,7 @@ exports.createTicket = async (req, res) => {
     } catch (err) {
         console.error('TICKET EXCEPTION:', err.message);
         res.status(500).json({ message: 'Server Error.' });
-    }
+    }<
 };
 
 /**
@@ -248,7 +248,7 @@ exports.getAddressByUserId = async (req, res) => {
     } catch (e) {
         console.error("[USER ADDRESS EXCEPTION]", e.message);
         res.status(500).json({ message: 'Server Error' });
-    }
+    }<
 };
 
 /**
@@ -339,7 +339,7 @@ exports.getAvailableServicemen = async (req, res) => {
             console.error("❌ [SUPABASE ERROR]", JSON.stringify(error, null, 2));
             console.groupEnd();
             return res.status(500).json({ message: 'Database query failed.', details: error.message });
-        }
+        }<
 
         // 4. Success Response
         const count = data ? data.length : 0;
@@ -361,8 +361,9 @@ exports.getAvailableServicemen = async (req, res) => {
 
 /**
  * Creates a new dispatch record in the Employee Supabase Dispatch table.
- * @param {object} req.body - Contains user_id, category, request_address, order_request, 
- * order_status, ticket_id, order_id, and phone_number.
+ * PRIMARY KEY LOGIC: order_id is the key identifier for the dispatch event.
+ * @param {object} req.body - Contains order_id (MANDATORY), category, request_address, 
+ * order_request, order_status, and phone_number. user_id is optional but recommended.
  */
 exports.dispatchServiceman = async (req, res) => {
     console.group("📝 [DISPATCH NEW JOB]");
@@ -379,8 +380,8 @@ exports.dispatchServiceman = async (req, res) => {
     console.log("[INFO] Dispatch Data received:", dispatchData);
 
     // 3. Validation
-    // Added 'phone_number' to required fields for critical communication
-    const requiredFields = ['user_id', 'category', 'request_address', 'order_status', 'order_request', 'phone_number'];
+    // --- CHANGE: user_id is replaced by order_id as the primary required field for the transaction. ---
+    const requiredFields = ['order_id', 'category', 'request_address', 'order_status', 'order_request', 'phone_number'];
     const missingFields = requiredFields.filter(field => !dispatchData[field]);
     
     if (missingFields.length > 0) {
@@ -391,7 +392,7 @@ exports.dispatchServiceman = async (req, res) => {
 
     try {
         // 4. Insert into 'Dispatch' table in the Employee DB
-        // Use spread operator to include all fields from req.body, including ticket_id, order_id, phone_number
+        // The table's primary key is likely 'id', but 'order_id' is the unique application key.
         const dataToInsert = {
             ...dispatchData,
             dispatched_at: new Date().toISOString(),
@@ -411,12 +412,13 @@ exports.dispatchServiceman = async (req, res) => {
 
         // 5. Success Response
         const newDispatchId = data[0]?.id || 'N/A';
-        console.log(`✅ [SUCCESS] New Dispatch record created with ID: ${newDispatchId}`);
+        console.log(`✅ [SUCCESS] New Dispatch record created with ID: ${newDispatchId} (Order ID: ${dispatchData.order_id})`);
         
         console.groupEnd();
         res.status(201).json({
             message: 'Serviceman successfully dispatched.',
             dispatch_id: newDispatchId,
+            order_id: dispatchData.order_id, // Explicitly return the new key
             details: data[0]
         });
 
