@@ -8,7 +8,8 @@ const {
     getAddressByUserId, 
     getAddressByAddressId,
     getAvailableServicemen, // 🚀 NEW IMPORT (Existing)
-    dispatchServiceman      // 🚀 NEW IMPORT (From previous update)
+    dispatchServiceman,      // 🚀 NEW IMPORT (From previous update)
+    getMemberIdByPhoneNumber
 } = require("../controllers/callController"); 
 
 const { io } = require("../socket/socketHandler"); 
@@ -38,6 +39,9 @@ router.post("/servicemen/available", getAvailableServicemen);
 // 🚀 6. NEW ROUTE: Dispatch Serviceman
 // This handles the POST request to assign a job to a serviceman in the Employee DB
 router.post("/dispatch", dispatchServiceman);
+// 7. Fetch Member ID by Phone Number (The missing route)
+router.post("/memberid/lookup", getMemberIdByPhoneNumber);
 
 
 module.exports = router;
+
