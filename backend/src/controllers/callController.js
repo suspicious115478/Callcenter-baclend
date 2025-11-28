@@ -248,7 +248,7 @@ exports.getAddressByUserId = async (req, res) => {
     } catch (e) {
         console.error("[USER ADDRESS EXCEPTION]", e.message);
         res.status(500).json({ message: 'Server Error' });
-    }<
+    }
 };
 
 /**
@@ -428,4 +428,5 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during dispatch.' });
     }
 };
+
 
