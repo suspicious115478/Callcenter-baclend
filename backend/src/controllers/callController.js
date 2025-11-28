@@ -13,7 +13,7 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-console.log("Main Supabase client initialized.");
+// console.log("Main Supabase client initialized."); // Removed
 
 // ======================================================================
 // 2. LOGGING SUPABASE (Ticket Creation/Logs)
@@ -25,7 +25,7 @@ let logSupabase = null;
 if (LOG_SUPABASE_URL && LOG_SUPABASE_ANON_KEY) {
     try {
         logSupabase = createClient(LOG_SUPABASE_URL, LOG_SUPABASE_ANON_KEY);
-        console.log("Logging Supabase client initialized successfully.");
+        // console.log("Logging Supabase client initialized successfully."); // Removed
     } catch (e) {
         console.error("Failed to initialize logging Supabase client:", e.message);
     }
@@ -43,7 +43,7 @@ let empSupabase = null;
 if (EMP_SUPABASE_URL && EMP_SUPABASE_ANON_KEY) {
     try {
         empSupabase = createClient(EMP_SUPABASE_URL, EMP_SUPABASE_ANON_KEY);
-        console.log("✅ Employee Supabase client initialized successfully.");
+        // console.log("✅ Employee Supabase client initialized successfully."); // Removed
     } catch (e) {
         console.error("❌ Failed to initialize Employee Supabase client:", e.message);
     }
@@ -52,7 +52,7 @@ if (EMP_SUPABASE_URL && EMP_SUPABASE_ANON_KEY) {
 }
 
 // ----------------------------------------------------------------------
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS (No Changes)
 // ----------------------------------------------------------------------
 
 const handleInactive = (dbPhoneNumber, name) => ({
@@ -68,11 +68,11 @@ const handleInactive = (dbPhoneNumber, name) => ({
 // ----------------------------------------------------------------------
 
 /**
- * Checks the subscription status of a phone number.
+ * Checks the subscription status of a phone number. (Reduced logging)
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    console.log(`[SUBSCRIPTION CHECK] Lookup for: ${phoneNumber} (DB: ${dbPhoneNumber})`);
+    // console.log(`[SUBSCRIPTION CHECK] Lookup for: ${phoneNumber} (DB: ${dbPhoneNumber})`); // Removed
 
     try {
         // STEP 1: Check AllowedNumber to get parent user_id
@@ -83,17 +83,17 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
             .limit(1);
 
         if (allowedError) {
-            console.error("[QUERY 1/2 ERROR]", allowedError.message);
+            console.error("[SUBSCRIPTION LOOKUP ERROR]", allowedError.message);
             return handleInactive(dbPhoneNumber, "DB Error");
         }
 
         const allowedEntry = allowedNumbers ? allowedNumbers[0] : null;
 
         if (!allowedEntry || !allowedEntry.user_id) {
-            console.log(`[QUERY 1/2 FAILURE] Number not found.`);
+            // console.log(`[QUERY 1/2 FAILURE] Number not found.`); // Removed
             return handleInactive(dbPhoneNumber, "Unrecognized Caller");
         }
-
+        // ... rest of the function remains the same
         const userId = allowedEntry.user_id;
 
         // STEP 2: Check User Table with parent user_id
@@ -104,7 +104,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
             .limit(1);
 
         if (userError) {
-            console.error("[QUERY 2/2 ERROR]", userError.message);
+            console.error("[SUBSCRIPTION LOOKUP ERROR]", userError.message);
             return handleInactive(dbPhoneNumber, "DB Error");
         }
         
@@ -127,7 +127,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         return handleInactive(dbPhoneNumber, user.name || "Inactive Subscriber");
         
     } catch (e) {
-        console.error("[LOOKUP EXCEPTION]", e.message);
+        console.error("[SUBSCRIPTION LOOKUP EXCEPTION]", e.message);
         return handleInactive(dbPhoneNumber, "System Error");
     }
 };
@@ -141,33 +141,46 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
     const { phoneNumber } = req.body;
 
     if (!phoneNumber) {
+        console.error("🛑 [MEMBER ID LOOKUP FAIL] Missing phoneNumber in request body.");
         return res.status(400).json({ message: 'Phone number is required.' });
     }
     
     // Normalize phone number (remove non-digits, assuming your DB stores digits only)
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    console.log(`[MEMBER ID LOOKUP] Querying Main DB for phone: ${dbPhoneNumber}`);
+    
+    // 1. EXTENSIVE LOGGING: Show exactly what is being searched
+    console.log(`🔎 [MEMBER ID LOOKUP START]`);
+    console.log(`-> Received Phone Number: "${phoneNumber}"`);
+    console.log(`-> Normalized DB Key:     "${dbPhoneNumber}"`);
+    console.log(`-> Type of DB Key:        ${typeof dbPhoneNumber}`);
 
     try {
         const { data, error } = await supabase
             .from('AllowedNumber')
-            .select('member_id') // ✅ CORRECTED: Selecting the member_id column
+            .select('member_id, phone_number') // Select phone_number too, for debugging
             .eq('phone_number', dbPhoneNumber)
             .limit(1);
 
         if (error) {
-            console.error("[MEMBER ID DB ERROR]", error.message);
+            console.error("❌ [MEMBER ID DB ERROR]", error.message);
             return res.status(500).json({ message: 'Database error during member ID lookup.', details: error.message });
         }
-
+        
+        // 2. EXTENSIVE LOGGING: Show the result of the query
         if (!data || data.length === 0) {
-            console.log(`[MEMBER ID 404] Phone number ${dbPhoneNumber} not found in AllowedNumber.`);
+            console.warn(`⚠️ [MEMBER ID 404] No records found for normalized key: "${dbPhoneNumber}"`);
+            
+            // Helpful Hint: Check for data type mismatches
+            if (data && data.length === 0) {
+                 console.warn("   HINT: The phone number format or data type (e.g., string vs number) in the DB likely does not match the search key.");
+            }
+            
             return res.status(404).json({ message: 'Phone number not found.' });
         }
 
-        // ✅ CORRECTED: Accessing the member_id field
+        // Access the member_id field
         const memberId = data[0].member_id; 
-        console.log(`[MEMBER ID SUCCESS] Found ID: ${memberId}`);
+        console.log(`✅ [MEMBER ID SUCCESS] Found Member ID: ${memberId} (from DB phone: ${data[0].phone_number})`);
         
         res.status(200).json({ 
             message: 'Member ID fetched successfully.', 
@@ -175,18 +188,17 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
         });
 
     } catch (e) {
-        console.error("[MEMBER ID EXCEPTION]", e.message);
+        console.error("🛑 [MEMBER ID EXCEPTION]", e.message);
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
 
-
 /**
- * Main handler for the incoming call webhook.
+ * Main handler for the incoming call webhook. (Reduced logging)
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     const currentAgentStatus = agentController.getRawStatus(); 
-    console.log(`[CALL BLOCK CHECK] Agent Status: ${currentAgentStatus}`);
+    // console.log(`[CALL BLOCK CHECK] Agent Status: ${currentAgentStatus}`); // Removed
     
     if (currentAgentStatus === 'offline') {
         console.warn("[CALL BLOCKED] Agent OFFLINE.");
@@ -196,7 +208,7 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         });
     }
 
-    console.log("[CALL PROCEED] Agent ONLINE.");
+    // console.log("[CALL PROCEED] Agent ONLINE."); // Removed
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
     
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
@@ -224,7 +236,7 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
 };
 
 /**
- * Creates a ticket in the logging DB.
+ * Creates a ticket in the logging DB. (Reduced logging)
  */
 exports.createTicket = async (req, res) => {
     if (!logSupabase) {
@@ -269,13 +281,13 @@ exports.createTicket = async (req, res) => {
 };
 
 /**
- * Fetches all address_line entries for a given user_id.
+ * Fetches all address_line entries for a given user_id. (Reduced logging)
  */
 exports.getAddressByUserId = async (req, res) => {
     const { userId } = req.params; 
 
     if (!userId) return res.status(400).json({ message: 'Missing user ID.' });
-    console.log(`[USER ADDRESS LOOKUP] ID: ${userId}`);
+    // console.log(`[USER ADDRESS LOOKUP] ID: ${userId}`); // Removed
 
     try {
         const { data: addresses, error } = await supabase
@@ -288,7 +300,7 @@ exports.getAddressByUserId = async (req, res) => {
             return res.status(500).json({ message: 'DB Error', details: error.message });
         }
         
-        console.log(`[USER ADDRESS SUCCESS] Count: ${addresses ? addresses.length : 0}`);
+        // console.log(`[USER ADDRESS SUCCESS] Count: ${addresses ? addresses.length : 0}`); // Removed
         res.status(200).json({
             message: 'Addresses fetched.',
             addresses: addresses || [] 
@@ -301,7 +313,7 @@ exports.getAddressByUserId = async (req, res) => {
 };
 
 /**
- * Fetches the specific address_line for a given address_id.
+ * Fetches the specific address_line for a given address_id. (Reduced logging)
  */
 exports.getAddressByAddressId = async (req, res) => {
     const { addressId } = req.params; 
@@ -309,7 +321,7 @@ exports.getAddressByAddressId = async (req, res) => {
     if (!addressId) {
         return res.status(400).json({ message: 'Missing address ID.' });
     }
-    console.log(`[ADDRESS FETCH START] ID: ${addressId}`);
+    // console.log(`[ADDRESS FETCH START] ID: ${addressId}`); // Removed
 
     try {
         const { data: address, error } = await supabase
@@ -324,12 +336,12 @@ exports.getAddressByAddressId = async (req, res) => {
         }
         
         if (!address || address.length === 0) {
-            console.warn(`[ADDRESS FETCH 404] ID ${addressId} not found.`);
+            // console.warn(`[ADDRESS FETCH 404] ID ${addressId} not found.`); // Removed
             return res.status(404).json({ message: 'Address not found.' });
         }
 
         const addressLine = address[0].address_line;
-        console.log(`[ADDRESS FETCH SUCCESS] Line: ${addressLine}`);
+        // console.log(`[ADDRESS FETCH SUCCESS] Line: ${addressLine}`); // Removed
 
         res.status(200).json({
             message: 'Address fetched.',
@@ -343,16 +355,15 @@ exports.getAddressByAddressId = async (req, res) => {
 };
 
 // ----------------------------------------------------------------------
-// EMPLOYEE DB FUNCTIONS
+// EMPLOYEE DB FUNCTIONS (Reduced logging)
 // ----------------------------------------------------------------------
 
 /**
  * Fetches active servicemen who are interested in the specific service.
  */
 exports.getAvailableServicemen = async (req, res) => {
+    // ... logic remains the same, but logging is focused
     console.group("🔍 [SERVICEMEN LOOKUP]");
-    
-    // 1. Initialization Check
     if (!empSupabase) {
         console.error("❌ [ERROR] Employee DB not configured (env vars missing).");
         console.groupEnd();
@@ -360,10 +371,9 @@ exports.getAvailableServicemen = async (req, res) => {
     }
 
     const { service } = req.body; 
-    console.log(`[INFO] Request Body received:`, req.body);
+    // console.log(`[INFO] Request Body received:`, req.body); // Removed verbose body log
     console.log(`[INFO] Searching for service: '${service}'`);
 
-    // 2. Validation
     if (!service) {
         console.error("⚠️ [ERROR] No service specified.");
         console.groupEnd();
@@ -371,16 +381,12 @@ exports.getAvailableServicemen = async (req, res) => {
     }
 
     try {
-        // 3. Database Query
-        // Table: 'services' 
-        console.log(`[QUERY] Executing: SELECT * FROM services WHERE is_active=true AND category ILIKE '%${service}%'`);
+        // console.log(`[QUERY] Executing: SELECT * FROM services WHERE is_active=true AND category ILIKE '%${service}%'`); // Removed detailed query string
         
         const { data, error } = await empSupabase
             .from('services') 
-            .select('*') // Selecting all columns
-            // Filter 1: Must be Active
+            .select('*') 
             .eq('is_active', true)
-            // Filter 2: Service match (Case-insensitive partial match)
             .ilike('category', `%${service}%`);
 
         if (error) {
@@ -389,7 +395,6 @@ exports.getAvailableServicemen = async (req, res) => {
             return res.status(500).json({ message: 'Database query failed.', details: error.message });
         }
 
-        // 4. Success Response
         const count = data ? data.length : 0;
         console.log(`✅ [SUCCESS] Found ${count} matching records.`);
         
@@ -404,7 +409,7 @@ exports.getAvailableServicemen = async (req, res) => {
 };
 
 // ======================================================================
-// Dispatch Serviceman
+// Dispatch Serviceman (Reduced logging)
 // ======================================================================
 
 /**
@@ -413,18 +418,15 @@ exports.getAvailableServicemen = async (req, res) => {
 exports.dispatchServiceman = async (req, res) => {
     console.group("📝 [DISPATCH NEW JOB]");
 
-    // 1. Initialization Check
     if (!empSupabase) {
         console.error("❌ [ERROR] Employee DB not configured.");
         console.groupEnd();
         return res.status(500).json({ message: 'Employee database unavailable for dispatch.' });
     }
 
-    // 2. Extract Data from Request Body
     const dispatchData = req.body;
-    console.log("[INFO] Dispatch Data received:", dispatchData);
+    // console.log("[INFO] Dispatch Data received:", dispatchData); // Removed verbose body log
 
-    // 3. Validation
     const requiredFields = ['order_id', 'category', 'request_address', 'order_status', 'order_request', 'phone_number'];
     const missingFields = requiredFields.filter(field => !dispatchData[field]);
     
@@ -435,7 +437,6 @@ exports.dispatchServiceman = async (req, res) => {
     }
 
     try {
-        // 4. Insert into 'Dispatch' table in the Employee DB
         const dataToInsert = {
             ...dispatchData,
             dispatched_at: new Date().toISOString(),
@@ -443,7 +444,7 @@ exports.dispatchServiceman = async (req, res) => {
         };
 
         const { data, error } = await empSupabase
-            .from('dispatch') // ⚠️ Ensure this table name is correct in your Employee DB
+            .from('dispatch') 
             .insert([dataToInsert])
             .select('*');
 
@@ -453,7 +454,6 @@ exports.dispatchServiceman = async (req, res) => {
             return res.status(500).json({ message: 'Database dispatch insert failed.', details: error.message });
         }
 
-        // 5. Success Response
         const newDispatchId = data[0]?.id || 'N/A';
         console.log(`✅ [SUCCESS] New Dispatch record created with ID: ${newDispatchId} (Order ID: ${dispatchData.order_id})`);
         
@@ -461,7 +461,7 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(201).json({
             message: 'Serviceman successfully dispatched.',
             dispatch_id: newDispatchId,
-            order_id: dispatchData.order_id, // Explicitly return the new key
+            order_id: dispatchData.order_id, 
             details: data[0]
         });
 
