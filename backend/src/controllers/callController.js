@@ -1,5 +1,3 @@
-// backend/src/controllers/callController.js
-
 const { createClient } = require('@supabase/supabase-js');
 const agentController = require('./agentController'); 
 
@@ -363,7 +361,8 @@ exports.getAvailableServicemen = async (req, res) => {
 
 /**
  * Creates a new dispatch record in the Employee Supabase Dispatch table.
- * @param {object} req.body - Contains technician_user_id, category, request_address, order_request, etc.
+ * @param {object} req.body - Contains user_id, category, request_address, order_request, 
+ * order_status, ticket_id, order_id, and phone_number.
  */
 exports.dispatchServiceman = async (req, res) => {
     console.group("📝 [DISPATCH NEW JOB]");
@@ -380,7 +379,8 @@ exports.dispatchServiceman = async (req, res) => {
     console.log("[INFO] Dispatch Data received:", dispatchData);
 
     // 3. Validation
-    const requiredFields = ['user_id', 'category', 'request_address', 'order_status', 'order_request'];
+    // Added 'phone_number' to required fields for critical communication
+    const requiredFields = ['user_id', 'category', 'request_address', 'order_status', 'order_request', 'phone_number'];
     const missingFields = requiredFields.filter(field => !dispatchData[field]);
     
     if (missingFields.length > 0) {
@@ -391,11 +391,10 @@ exports.dispatchServiceman = async (req, res) => {
 
     try {
         // 4. Insert into 'Dispatch' table in the Employee DB
-        // Add timestamp for logging
+        // Use spread operator to include all fields from req.body, including ticket_id, order_id, phone_number
         const dataToInsert = {
             ...dispatchData,
             dispatched_at: new Date().toISOString(),
-            // Ensure status defaults to a known value if not provided, though it's required by validation.
             order_status: dispatchData.order_status || 'Assigned' 
         };
 
@@ -427,5 +426,3 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during dispatch.' });
     }
 };
-
-
