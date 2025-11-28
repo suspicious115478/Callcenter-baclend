@@ -427,10 +427,17 @@ exports.dispatchServiceman = async (req, res) => {
     }
 
     const dispatchData = req.body;
-    // user_id is serviceman ID here
-    let { order_id, category, user_id, member_id, phone_number, request_address, order_status, order_request } = dispatchData; 
+    // user_id here is serviceman ID
+    let { 
+        order_id, category, user_id, 
+        member_id, phone_number, request_address, 
+        order_status, order_request, 
+        address_id // Destructure address_id here in case client sends it
+    } = dispatchData; 
+
     let customerUserId = null;
     let resolvedMemberId = member_id; // Start with the received member_id (or null/undefined)
+    let resolvedAddressId = address_id; // Start with the received address_id
 
     // 1. Validation for essential, non-derivable data (Serviceman assignment data)
     if (!order_id || !user_id || !category) {
@@ -452,11 +459,10 @@ exports.dispatchServiceman = async (req, res) => {
 
     try {
         // ---------------------------------------------------------
-        // STEP 2 (New): Lookup Customer Identifiers (Member ID and User ID)
-        // This is now done BEFORE Step 1 to ensure we have the necessary identifiers
+        // STEP 2: Lookup Customer Identifiers (Member ID and User ID)
         // ---------------------------------------------------------
         
-        // A. If member_id is missing, use phone_number to find it
+        // A. Resolve Member ID and get Customer User ID (Logic from previous fixes)
         if (!resolvedMemberId && phone_number) {
             console.log(`[STEP 2/A] Member ID missing. Attempting lookup via phone number: ${phone_number}...`);
             const dbPhoneNumber = phone_number.replace(/[^0-9]/g, '');
@@ -482,7 +488,7 @@ exports.dispatchServiceman = async (req, res) => {
             console.log(`✅ [STEP 2/A SUCCESS] Resolved Member ID: ${resolvedMemberId}. Customer User ID: ${customerUserId}`);
         
         } else if (resolvedMemberId) {
-            // B. If member_id IS present, use it to find the Customer User ID (as originally planned)
+            // B. If member_id IS present, use it to find the Customer User ID
             console.log(`[STEP 2/B] Member ID provided (${resolvedMemberId}). Looking up Customer User ID...`);
             
             const { data: allowedData, error: allowedError } = await supabase
@@ -504,10 +510,36 @@ exports.dispatchServiceman = async (req, res) => {
             console.log(`✅ [STEP 2/B SUCCESS] Customer User ID found: ${customerUserId}`);
 
         } else {
-            // C. Final fallback if neither member_id nor phone_number is available
             console.error("❌ [ERROR] Both member_id and phone_number are missing. Cannot proceed.");
             console.groupEnd();
             return res.status(400).json({ message: 'Missing required customer identifier (member_id or phone_number).' });
+        }
+        
+        // ---------------------------------------------------------
+        // STEP 2/C (NEW): Resolve Address ID (Fix for "address_id" not-null constraint)
+        // We fetch the first available address ID for the customer if it's missing.
+        // ---------------------------------------------------------
+        if (!resolvedAddressId && customerUserId) {
+            console.log(`[STEP 2/C] Address ID missing. Attempting to fetch a valid ID for Customer User ID: ${customerUserId}...`);
+            
+            const { data: addressData, error: addressError } = await supabase
+                .from('Address')
+                .select('address_id')
+                .eq('user_id', customerUserId)
+                .limit(1);
+
+            if (addressError) {
+                console.error("❌ [MAIN DB ADDRESS LOOKUP ERROR]", addressError.message);
+                // Proceed with null, the DB will raise the expected error if it's non-nullable.
+            }
+
+            if (addressData && addressData.length > 0) {
+                resolvedAddressId = addressData[0].address_id;
+                console.log(`✅ [STEP 2/C SUCCESS] Found Address ID: ${resolvedAddressId} to satisfy the constraint.`);
+            } else {
+                console.warn("⚠️ [STEP 2/C WARNING] No address found for customer. The Order insertion will likely fail due to the non-null constraint.");
+                // resolvedAddressId remains null, triggering the constraint error if the DB is empty.
+            }
         }
         
         // ---------------------------------------------------------
@@ -546,24 +578,36 @@ exports.dispatchServiceman = async (req, res) => {
         // ---------------------------------------------------------
         console.log(`[STEP 3] Creating Order record in Main DB...`);
 
+        // Placeholder for non-nullable fields not currently passed by the client.
         const mainDbOrderData = {
             order_id: order_id,
-            user_id: customerUserId, // Customer (guaranteed to be set by Step 2)
-            member_id: resolvedMemberId, // Member ID (guaranteed to be set by Step 2)
-            service_category: category,   // Renamed to fit your prompt description
-            service_subcategory: category || 'General Service',
-            work_description: order_request, // Renamed to fit your prompt description
-            order_status: 'Assigned'
+            user_id: customerUserId, 
+            member_id: resolvedMemberId, 
+            
+            // FIX 1: Address ID
+            address_id: resolvedAddressId, // Will be null if lookup failed, otherwise the found ID.
+            
+            // FIX 2: Service Subcategory (from previous issue)
+            service_category: category,
+            service_subcategory: category || 'General Service', 
+            
+            work_description: order_request, 
+            
+            // Default placeholder fields
+            customer_feedback_rating: 0, 
+            service_date: new Date().toISOString().split('T')[0], 
+            service_time: new Date().toLocaleTimeString('en-US', { hour12: false }), 
+            
+            order_status: 'Assigned',
         };
 
         const { data: orderData, error: orderError } = await supabase
-            .from('Order') // Ensure table name is exactly 'Order' (Case sensitive in Supabase usually)
+            .from('Order') 
             .insert([mainDbOrderData])
             .select('*');
 
         if (orderError) {
             console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
-            // Note: Dispatch (Step 1) already happened. Real-world scenario needs rollback.
             console.groupEnd();
             return res.status(500).json({ 
                 message: 'Serviceman dispatched, but failed to create Order record.', 
@@ -588,4 +632,3 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during full dispatch process.' });
     }
 };
-
