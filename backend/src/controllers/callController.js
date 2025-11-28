@@ -68,7 +68,9 @@ const handleInactive = (dbPhoneNumber, name) => ({
 // ----------------------------------------------------------------------
 
 /**
- * 🚀 NEW: Fetches the userId and member_id from the AllowedNumber table based on phone number.
+ * 🚀 NEW/UPDATED: Fetches the userId and member_id from the AllowedNumber table based on phone number.
+ * This function specifically supports the UserDashboardPage's initial data fetch.
+ * * Logic flow: Phone Number -> (AllowedNumber) -> User ID & Member ID
  */
 exports.getUserInfoByPhoneNumber = async (req, res) => {
     const { phoneNumber } = req.params;
@@ -83,7 +85,6 @@ exports.getUserInfoByPhoneNumber = async (req, res) => {
         // STEP 1: Check AllowedNumber for user_id and member_id
         const { data: allowedNumbers, error: allowedError } = await supabase
             .from('AllowedNumber')
-            // ⭐️ Select both user_id and member_id
             .select('user_id, member_id') 
             .eq('phone_number', dbPhoneNumber) 
             .limit(1);
@@ -116,10 +117,8 @@ exports.getUserInfoByPhoneNumber = async (req, res) => {
     }
 };
 
----
-
 /**
- * Checks the subscription status of a phone number.
+ * Checks the subscription status of a phone number. (Used by the initial call webhook).
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
@@ -129,7 +128,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         // STEP 1: Check AllowedNumber
         const { data: allowedNumbers, error: allowedError } = await supabase
             .from('AllowedNumber')
-            // ⭐️ Changed select to include member_id, but main logic only uses user_id
+            // ⭐️ Included member_id here as well, although the function's main return doesn't use it.
             .select('user_id, member_id') 
             .eq('phone_number', dbPhoneNumber) 
             .limit(1);
@@ -147,7 +146,6 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         }
 
         const userId = allowedEntry.user_id;
-        // const memberId = allowedEntry.member_id; // Added for completeness, but not used in current function return
 
         // STEP 2: Check User Table
         const { data: users, error: userError } = await supabase
@@ -282,6 +280,7 @@ exports.createTicket = async (req, res) => {
 
 /**
  * Fetches all address_line entries for a given user_id.
+ * * Logic flow: User ID -> (Address) -> Address ID & Address Line
  */
 exports.getAddressByUserId = async (req, res) => {
     const { userId } = req.params; 
