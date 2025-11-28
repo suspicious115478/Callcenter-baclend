@@ -52,7 +52,7 @@ if (EMP_SUPABASE_URL && EMP_SUPABASE_ANON_KEY) {
 }
 
 // ----------------------------------------------------------------------
-// HELPER FUNCTIONS (No Changes)
+// HELPER FUNCTIONS 
 // ----------------------------------------------------------------------
 
 const handleInactive = (dbPhoneNumber, name) => ({
@@ -68,7 +68,7 @@ const handleInactive = (dbPhoneNumber, name) => ({
 // ----------------------------------------------------------------------
 
 /**
- * Checks the subscription status of a phone number. (Reduced logging)
+ * Checks the subscription status of a phone number.
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
@@ -172,7 +172,7 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
             
             // Helpful Hint: Check for data type mismatches
             if (data && data.length === 0) {
-                 console.warn("   HINT: The phone number format or data type (e.g., string vs number) in the DB likely does not match the search key.");
+                 console.warn("    HINT: The phone number format or data type (e.g., string vs number) in the DB likely does not match the search key.");
             }
             
             return res.status(404).json({ message: 'Phone number not found.' });
@@ -194,7 +194,7 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
 };
 
 /**
- * Main handler for the incoming call webhook. (Reduced logging)
+ * Main handler for the incoming call webhook.
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     const currentAgentStatus = agentController.getRawStatus(); 
@@ -236,7 +236,7 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
 };
 
 /**
- * Creates a ticket in the logging DB. (Reduced logging)
+ * Creates a ticket in the logging DB.
  */
 exports.createTicket = async (req, res) => {
     if (!logSupabase) {
@@ -281,7 +281,7 @@ exports.createTicket = async (req, res) => {
 };
 
 /**
- * Fetches all address_line entries for a given user_id. (Reduced logging)
+ * Fetches all address_line entries for a given user_id.
  */
 exports.getAddressByUserId = async (req, res) => {
     const { userId } = req.params; 
@@ -313,7 +313,7 @@ exports.getAddressByUserId = async (req, res) => {
 };
 
 /**
- * Fetches the specific address_line for a given address_id. (Reduced logging)
+ * Fetches the specific address_line for a given address_id.
  */
 exports.getAddressByAddressId = async (req, res) => {
     const { addressId } = req.params; 
@@ -355,7 +355,7 @@ exports.getAddressByAddressId = async (req, res) => {
 };
 
 // ----------------------------------------------------------------------
-// EMPLOYEE DB FUNCTIONS (Reduced logging)
+// EMPLOYEE DB FUNCTIONS
 // ----------------------------------------------------------------------
 
 /**
@@ -409,7 +409,7 @@ exports.getAvailableServicemen = async (req, res) => {
 };
 
 // ======================================================================
-// Dispatch Serviceman + Create Order (Modified)
+// Dispatch Serviceman + Create Order (Modified for Debugging)
 // ======================================================================
 
 /**
@@ -430,12 +430,28 @@ exports.dispatchServiceman = async (req, res) => {
     // We expect member_id to be passed from frontend now
     const { order_id, category, request_address, order_status, order_request, phone_number, user_id, member_id } = dispatchData;
 
-    // 1. Validation
+    // 1. Validation -----------------------------------------------------
     if (!order_id || !user_id || !member_id || !category) {
-        console.error("⚠️ [ERROR] Missing fields. Required: order_id, user_id (serviceman), member_id, category");
+        
+        // --- START OF NEW/IMPROVED DEBUG LOGGING ---
+        const missingFields = [];
+        if (!order_id) missingFields.push('order_id');
+        if (!user_id) missingFields.push('user_id (serviceman)');
+        if (!member_id) missingFields.push('member_id');
+        if (!category) missingFields.push('category');
+        
+        console.error(`⚠️ [ERROR] Missing fields. Required: ${missingFields.join(', ')}`);
+        console.error("-> Received dispatchData:", JSON.stringify(dispatchData, null, 2));
+        // --- END OF NEW/IMPROVED DEBUG LOGGING ---
+        
         console.groupEnd();
-        return res.status(400).json({ message: 'Missing required dispatch data.' });
+        return res.status(400).json({ 
+            message: 'Missing required dispatch data.',
+            missing: missingFields,
+            received: dispatchData 
+        });
     }
+    // -------------------------------------------------------------------
 
     try {
         // ---------------------------------------------------------
