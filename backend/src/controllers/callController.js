@@ -13,7 +13,6 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-// console.log("Main Supabase client initialized."); // Removed
 
 // ======================================================================
 // 2. LOGGING SUPABASE (Ticket Creation/Logs)
@@ -25,7 +24,6 @@ let logSupabase = null;
 if (LOG_SUPABASE_URL && LOG_SUPABASE_ANON_KEY) {
     try {
         logSupabase = createClient(LOG_SUPABASE_URL, LOG_SUPABASE_ANON_KEY);
-        // console.log("Logging Supabase client initialized successfully."); // Removed
     } catch (e) {
         console.error("Failed to initialize logging Supabase client:", e.message);
     }
@@ -43,7 +41,6 @@ let empSupabase = null;
 if (EMP_SUPABASE_URL && EMP_SUPABASE_ANON_KEY) {
     try {
         empSupabase = createClient(EMP_SUPABASE_URL, EMP_SUPABASE_ANON_KEY);
-        // console.log("✅ Employee Supabase client initialized successfully."); // Removed
     } catch (e) {
         console.error("❌ Failed to initialize Employee Supabase client:", e.message);
     }
@@ -72,7 +69,6 @@ const handleInactive = (dbPhoneNumber, name) => ({
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    // console.log(`[SUBSCRIPTION CHECK] Lookup for: ${phoneNumber} (DB: ${dbPhoneNumber})`); // Removed
 
     try {
         // STEP 1: Check AllowedNumber to get parent user_id
@@ -90,10 +86,9 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         const allowedEntry = allowedNumbers ? allowedNumbers[0] : null;
 
         if (!allowedEntry || !allowedEntry.user_id) {
-            // console.log(`[QUERY 1/2 FAILURE] Number not found.`); // Removed
             return handleInactive(dbPhoneNumber, "Unrecognized Caller");
         }
-        // ... rest of the function remains the same
+        
         const userId = allowedEntry.user_id;
 
         // STEP 2: Check User Table with parent user_id
@@ -198,7 +193,6 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     const currentAgentStatus = agentController.getRawStatus(); 
-    // console.log(`[CALL BLOCK CHECK] Agent Status: ${currentAgentStatus}`); // Removed
     
     if (currentAgentStatus === 'offline') {
         console.warn("[CALL BLOCKED] Agent OFFLINE.");
@@ -208,7 +202,6 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         });
     }
 
-    // console.log("[CALL PROCEED] Agent ONLINE."); // Removed
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
     
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
@@ -287,7 +280,6 @@ exports.getAddressByUserId = async (req, res) => {
     const { userId } = req.params; 
 
     if (!userId) return res.status(400).json({ message: 'Missing user ID.' });
-    // console.log(`[USER ADDRESS LOOKUP] ID: ${userId}`); // Removed
 
     try {
         const { data: addresses, error } = await supabase
@@ -300,7 +292,6 @@ exports.getAddressByUserId = async (req, res) => {
             return res.status(500).json({ message: 'DB Error', details: error.message });
         }
         
-        // console.log(`[USER ADDRESS SUCCESS] Count: ${addresses ? addresses.length : 0}`); // Removed
         res.status(200).json({
             message: 'Addresses fetched.',
             addresses: addresses || [] 
@@ -321,7 +312,6 @@ exports.getAddressByAddressId = async (req, res) => {
     if (!addressId) {
         return res.status(400).json({ message: 'Missing address ID.' });
     }
-    // console.log(`[ADDRESS FETCH START] ID: ${addressId}`); // Removed
 
     try {
         const { data: address, error } = await supabase
@@ -336,12 +326,10 @@ exports.getAddressByAddressId = async (req, res) => {
         }
         
         if (!address || address.length === 0) {
-            // console.warn(`[ADDRESS FETCH 404] ID ${addressId} not found.`); // Removed
             return res.status(404).json({ message: 'Address not found.' });
         }
 
         const addressLine = address[0].address_line;
-        // console.log(`[ADDRESS FETCH SUCCESS] Line: ${addressLine}`); // Removed
 
         res.status(200).json({
             message: 'Address fetched.',
@@ -362,7 +350,6 @@ exports.getAddressByAddressId = async (req, res) => {
  * Fetches active servicemen who are interested in the specific service.
  */
 exports.getAvailableServicemen = async (req, res) => {
-    // ... logic remains the same, but logging is focused
     console.group("🔍 [SERVICEMEN LOOKUP]");
     if (!empSupabase) {
         console.error("❌ [ERROR] Employee DB not configured (env vars missing).");
@@ -371,7 +358,6 @@ exports.getAvailableServicemen = async (req, res) => {
     }
 
     const { service } = req.body; 
-    // console.log(`[INFO] Request Body received:`, req.body); // Removed verbose body log
     console.log(`[INFO] Searching for service: '${service}'`);
 
     if (!service) {
@@ -381,8 +367,6 @@ exports.getAvailableServicemen = async (req, res) => {
     }
 
     try {
-        // console.log(`[QUERY] Executing: SELECT * FROM services WHERE is_active=true AND category ILIKE '%${service}%'`); // Removed detailed query string
-        
         const { data, error } = await empSupabase
             .from('services') 
             .select('*') 
@@ -462,7 +446,7 @@ exports.dispatchServiceman = async (req, res) => {
         // STEP 2: Lookup Customer Identifiers (Member ID and User ID)
         // ---------------------------------------------------------
         
-        // A. Resolve Member ID and get Customer User ID (Logic from previous fixes)
+        // A. Resolve Member ID and get Customer User ID 
         if (!resolvedMemberId && phone_number) {
             console.log(`[STEP 2/A] Member ID missing. Attempting lookup via phone number: ${phone_number}...`);
             const dbPhoneNumber = phone_number.replace(/[^0-9]/g, '');
@@ -516,7 +500,7 @@ exports.dispatchServiceman = async (req, res) => {
         }
         
         // ---------------------------------------------------------
-        // STEP 2/C: Resolve Address ID (Fix for "address_id" not-null constraint)
+        // STEP 2/C: Resolve Address ID 
         // We fetch the first available address ID for the customer if it's missing.
         // ---------------------------------------------------------
         if (!resolvedAddressId && customerUserId) {
@@ -568,8 +552,7 @@ exports.dispatchServiceman = async (req, res) => {
             console.error("❌ [EMPLOYEE DB ERROR]", empError.message);
             console.groupEnd();
             return res.status(500).json({ message: 'Failed to insert into Dispatch table.', details: empError.message });
-        }
-        console.log("✅ [STEP 1 SUCCESS] Dispatch record created.");
+        }<br>        console.log("✅ [STEP 1 SUCCESS] Dispatch record created.");
 
 
         // ---------------------------------------------------------
@@ -595,7 +578,6 @@ exports.dispatchServiceman = async (req, res) => {
             
             work_description: order_request, 
             
-
             order_status: 'Assigned',
 
             // NEW FIELDS ADDED:
@@ -636,4 +618,3 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during full dispatch process.' });
     }
 };
-
