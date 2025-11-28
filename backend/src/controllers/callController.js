@@ -409,12 +409,12 @@ exports.getAvailableServicemen = async (req, res) => {
 };
 
 // ======================================================================
-// Dispatch Serviceman + Create Order (Modified for Debugging)
+// Dispatch Serviceman + Create Order (Modified for Resilience)
 // ======================================================================
 
 /**
  * 1. Creates a dispatch record in Employee DB (Serviceman ID).
- * 2. Fetches Customer User ID using Member ID.
+ * 2. Fetches Customer User ID & Member ID (if missing) in Main DB.
  * 3. Creates an Order record in Main DB (Customer ID).
  */
 exports.dispatchServiceman = async (req, res) => {
@@ -427,33 +427,89 @@ exports.dispatchServiceman = async (req, res) => {
     }
 
     const dispatchData = req.body;
-    // We expect member_id to be passed from frontend now
-    const { order_id, category, request_address, order_status, order_request, phone_number, user_id, member_id } = dispatchData;
+    // user_id is serviceman ID here
+    let { order_id, category, user_id, member_id, phone_number, request_address, order_status, order_request } = dispatchData; 
+    let customerUserId = null;
+    let resolvedMemberId = member_id; // Start with the received member_id (or null/undefined)
 
-    // 1. Validation -----------------------------------------------------
-    if (!order_id || !user_id || !member_id || !category) {
-        
-        // --- START OF NEW/IMPROVED DEBUG LOGGING ---
+    // 1. Validation for essential, non-derivable data (Serviceman assignment data)
+    if (!order_id || !user_id || !category) {
         const missingFields = [];
         if (!order_id) missingFields.push('order_id');
         if (!user_id) missingFields.push('user_id (serviceman)');
-        if (!member_id) missingFields.push('member_id');
         if (!category) missingFields.push('category');
         
         console.error(`⚠️ [ERROR] Missing fields. Required: ${missingFields.join(', ')}`);
         console.error("-> Received dispatchData:", JSON.stringify(dispatchData, null, 2));
-        // --- END OF NEW/IMPROVED DEBUG LOGGING ---
         
         console.groupEnd();
         return res.status(400).json({ 
-            message: 'Missing required dispatch data.',
+            message: 'Missing essential dispatch data.',
             missing: missingFields,
             received: dispatchData 
         });
     }
-    // -------------------------------------------------------------------
 
     try {
+        // ---------------------------------------------------------
+        // STEP 2 (New): Lookup Customer Identifiers (Member ID and User ID)
+        // This is now done BEFORE Step 1 to ensure we have the necessary identifiers
+        // ---------------------------------------------------------
+        
+        // A. If member_id is missing, use phone_number to find it
+        if (!resolvedMemberId && phone_number) {
+            console.log(`[STEP 2/A] Member ID missing. Attempting lookup via phone number: ${phone_number}...`);
+            const dbPhoneNumber = phone_number.replace(/[^0-9]/g, '');
+
+            const { data: allowedData, error: allowedError } = await supabase
+                .from('AllowedNumber')
+                .select('user_id, member_id')
+                .eq('phone_number', dbPhoneNumber)
+                .limit(1);
+
+            if (allowedError || !allowedData || allowedData.length === 0) {
+                console.error("❌ [MAIN DB LOOKUP ERROR] Could not find Customer IDs for this phone number.");
+                console.groupEnd();
+                return res.status(500).json({ 
+                    message: 'Cannot proceed: Customer not found via phone number lookup.',
+                    details: allowedError ? allowedError.message : 'No matching record found.'
+                });
+            }
+
+            resolvedMemberId = allowedData[0].member_id;
+            customerUserId = allowedData[0].user_id;
+
+            console.log(`✅ [STEP 2/A SUCCESS] Resolved Member ID: ${resolvedMemberId}. Customer User ID: ${customerUserId}`);
+        
+        } else if (resolvedMemberId) {
+            // B. If member_id IS present, use it to find the Customer User ID (as originally planned)
+            console.log(`[STEP 2/B] Member ID provided (${resolvedMemberId}). Looking up Customer User ID...`);
+            
+            const { data: allowedData, error: allowedError } = await supabase
+                .from('AllowedNumber')
+                .select('user_id')
+                .eq('member_id', resolvedMemberId)
+                .limit(1);
+            
+            if (allowedError || !allowedData || allowedData.length === 0) {
+                console.error("❌ [MAIN DB LOOKUP ERROR] Could not find User ID for the provided Member ID.");
+                console.groupEnd();
+                return res.status(500).json({ 
+                    message: 'Cannot proceed: Member ID lookup failed.',
+                    details: allowedError ? allowedError.message : 'No matching record found.'
+                });
+            }
+
+            customerUserId = allowedData[0].user_id;
+            console.log(`✅ [STEP 2/B SUCCESS] Customer User ID found: ${customerUserId}`);
+
+        } else {
+            // C. Final fallback if neither member_id nor phone_number is available
+            console.error("❌ [ERROR] Both member_id and phone_number are missing. Cannot proceed.");
+            console.groupEnd();
+            return res.status(400).json({ message: 'Missing required customer identifier (member_id or phone_number).' });
+        }
+        
         // ---------------------------------------------------------
         // STEP 1: Insert into Employee DB (Dispatch Table)
         // 'user_id' here is the SERVICEMAN
@@ -485,30 +541,6 @@ exports.dispatchServiceman = async (req, res) => {
 
 
         // ---------------------------------------------------------
-        // STEP 2: Lookup Customer USER_ID in Main DB
-        // We use the member_id to find the Customer's user_id
-        // ---------------------------------------------------------
-        console.log(`[STEP 2] Looking up Customer User ID for Member ID: ${member_id}...`);
-        
-        const { data: allowedData, error: allowedError } = await supabase
-            .from('AllowedNumber')
-            .select('user_id')
-            .eq('member_id', member_id)
-            .limit(1);
-
-        if (allowedError || !allowedData || allowedData.length === 0) {
-            console.error("❌ [MAIN DB LOOKUP ERROR] Could not find User ID for this Member ID.");
-            // We do NOT stop the process, but we warn. Or we return 500? 
-            // For now, we return 500 because the Order table constraint likely needs user_id.
-            console.groupEnd();
-            return res.status(500).json({ message: 'Dispatch succeeded, but failed to find Customer User ID.' });
-        }
-
-        const customerUserId = allowedData[0].user_id;
-        console.log(`✅ [STEP 2 SUCCESS] Customer User ID found: ${customerUserId}`);
-
-
-        // ---------------------------------------------------------
         // STEP 3: Insert into Main DB (Order Table)
         // 'user_id' here is the CUSTOMER
         // ---------------------------------------------------------
@@ -516,8 +548,8 @@ exports.dispatchServiceman = async (req, res) => {
 
         const mainDbOrderData = {
             order_id: order_id,
-            user_id: customerUserId, // Customer
-            member_id: member_id,
+            user_id: customerUserId, // Customer (guaranteed to be set by Step 2)
+            member_id: resolvedMemberId, // Member ID (guaranteed to be set by Step 2)
             service_category: category,      // Renamed to fit your prompt description
             work_description: order_request, // Renamed to fit your prompt description
             order_status: 'Assigned'
@@ -530,8 +562,7 @@ exports.dispatchServiceman = async (req, res) => {
 
         if (orderError) {
             console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
-            // Note: Dispatch (Step 1) already happened. In a real world, we'd need a rollback logic.
-            // For now, reporting the error.
+            // Note: Dispatch (Step 1) already happened. Real-world scenario needs rollback.
             console.groupEnd();
             return res.status(500).json({ 
                 message: 'Serviceman dispatched, but failed to create Order record.', 
