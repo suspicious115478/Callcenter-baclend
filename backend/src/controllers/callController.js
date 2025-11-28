@@ -516,7 +516,7 @@ exports.dispatchServiceman = async (req, res) => {
         }
         
         // ---------------------------------------------------------
-        // STEP 2/C (NEW): Resolve Address ID (Fix for "address_id" not-null constraint)
+        // STEP 2/C: Resolve Address ID (Fix for "address_id" not-null constraint)
         // We fetch the first available address ID for the customer if it's missing.
         // ---------------------------------------------------------
         if (!resolvedAddressId && customerUserId) {
@@ -578,6 +578,8 @@ exports.dispatchServiceman = async (req, res) => {
         // ---------------------------------------------------------
         console.log(`[STEP 3] Creating Order record in Main DB...`);
 
+        const currentTimestamp = new Date().toISOString();
+
         // Placeholder for non-nullable fields not currently passed by the client.
         const mainDbOrderData = {
             order_id: order_id,
@@ -595,10 +597,15 @@ exports.dispatchServiceman = async (req, res) => {
             
             // Default placeholder fields
             customer_feedback_rating: 0, 
-            service_date: new Date().toISOString().split('T')[0], 
-            service_time: new Date().toLocaleTimeString('en-US', { hour12: false }), 
-            
+            service_date: currentTimestamp.split('T')[0], // Placeholder date
+            service_time: new Date().toLocaleTimeString('en-US', { hour12: false }), // Placeholder time
             order_status: 'Assigned',
+
+            // NEW FIELDS ADDED:
+            scheduled_date: currentTimestamp, // Placeholder timestamp
+            preferred_time: '9:00 AM - 1:00 PM', // Placeholder text
+            created_at: currentTimestamp, // Current timestamp (created_at)
+            updated_at: currentTimestamp, // Current timestamp (updated_at)
         };
 
         const { data: orderData, error: orderError } = await supabase
