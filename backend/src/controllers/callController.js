@@ -595,10 +595,7 @@ exports.dispatchServiceman = async (req, res) => {
             
             work_description: order_request, 
             
-            // Default placeholder fields
-            customer_feedback_rating: 0, 
-            service_date: currentTimestamp.split('T')[0], // Placeholder date
-            service_time: new Date().toLocaleTimeString('en-US', { hour12: false }), // Placeholder time
+
             order_status: 'Assigned',
 
             // NEW FIELDS ADDED:
@@ -639,3 +636,4 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during full dispatch process.' });
     }
 };
+
