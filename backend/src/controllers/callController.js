@@ -339,7 +339,7 @@ exports.getAvailableServicemen = async (req, res) => {
             console.error("❌ [SUPABASE ERROR]", JSON.stringify(error, null, 2));
             console.groupEnd();
             return res.status(500).json({ message: 'Database query failed.', details: error.message });
-        }<
+        }
 
         // 4. Success Response
         const count = data ? data.length : 0;
@@ -428,5 +428,6 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during dispatch.' });
     }
 };
+
 
 
