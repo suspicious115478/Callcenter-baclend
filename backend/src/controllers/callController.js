@@ -68,21 +68,25 @@ const handleInactive = (dbPhoneNumber, name) => ({
 // ----------------------------------------------------------------------
 
 /**
- * 🚀 NEW/UPDATED: Fetches the userId and member_id from the AllowedNumber table based on phone number.
- * This function specifically supports the UserDashboardPage's initial data fetch.
- * * Logic flow: Phone Number -> (AllowedNumber) -> User ID & Member ID
+ * 🚀 Fetches the userId and member_id from the AllowedNumber table based on phone number.
+ * **(LOGGING ADDED HERE)**
  */
 exports.getUserInfoByPhoneNumber = async (req, res) => {
     const { phoneNumber } = req.params;
     const dbPhoneNumber = phoneNumber ? phoneNumber.replace(/[^0-9]/g, '') : null;
-    console.log(`[USER INFO LOOKUP] Phone: ${dbPhoneNumber}`);
+    
+    // 🛠️ NEW LOGGING: Verify input and cleaned phone number
+    console.log(`[USER INFO LOOKUP - START] Original Phone: ${phoneNumber}`);
+    console.log(`[USER INFO LOOKUP - CLEANED] DB Phone: ${dbPhoneNumber}`);
 
     if (!dbPhoneNumber) {
         return res.status(400).json({ message: 'Missing phone number.' });
     }
 
     try {
-        // STEP 1: Check AllowedNumber for user_id and member_id
+        // 🛠️ NEW LOGGING: Log the exact query filter
+        console.log(`[DB QUERY] Table: AllowedNumber, Filter: phone_number = '${dbPhoneNumber}'`);
+
         const { data: allowedNumbers, error: allowedError } = await supabase
             .from('AllowedNumber')
             .select('user_id, member_id') 
@@ -90,19 +94,24 @@ exports.getUserInfoByPhoneNumber = async (req, res) => {
             .limit(1);
 
         if (allowedError) {
-            console.error("[USER INFO ERROR]", allowedError.message);
+            // 🛠️ NEW LOGGING: Log Supabase error details
+            console.error("[USER INFO ERROR] Supabase Query Failed:", allowedError.message, allowedError.details);
             return res.status(500).json({ message: 'DB Error', details: allowedError.message });
         }
+        
+        // 🛠️ NEW LOGGING: Log the raw data returned
+        console.log(`[DB RESULT] Raw Data Count: ${allowedNumbers ? allowedNumbers.length : 0}`);
 
         const allowedEntry = allowedNumbers ? allowedNumbers[0] : null;
 
         if (!allowedEntry) {
-            console.log(`[USER INFO 404] Number not found.`);
-            // Return 404 so the frontend knows the user is unverified/new
+            console.log(`[USER INFO 404] Number not found in AllowedNumber.`);
+            // This 404 is the likely cause of your frontend issue.
             return res.status(404).json({ message: 'Caller not found in AllowedNumber table.' });
         }
-
-        console.log(`[USER INFO SUCCESS] UserID: ${allowedEntry.user_id}, MemberID: ${allowedEntry.member_id}`);
+        
+        // 🛠️ NEW LOGGING: Log the IDs *before* sending to frontend
+        console.log(`[USER INFO SUCCESS] Fetched UserID: ${allowedEntry.user_id}, Fetched MemberID: ${allowedEntry.member_id}`);
         
         // Return the extracted IDs
         res.status(200).json({
@@ -110,25 +119,32 @@ exports.getUserInfoByPhoneNumber = async (req, res) => {
             userId: allowedEntry.user_id,
             memberId: allowedEntry.member_id || 'N/A' // Handle potential null member_id
         });
+        
+        console.log("[USER INFO LOOKUP - END] Response Sent.");
 
     } catch (e) {
-        console.error("[USER INFO EXCEPTION]", e.message);
+        console.error("[USER INFO EXCEPTION] Server Exception:", e.message);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
 /**
  * Checks the subscription status of a phone number. (Used by the initial call webhook).
+ * **(LOGGING ADDED HERE)**
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    console.log(`[SUBSCRIPTION CHECK] Lookup for: ${phoneNumber} (DB: ${dbPhoneNumber})`);
+    
+    // 🛠️ NEW LOGGING: Verify input and cleaned phone number
+    console.log(`[SUBSCRIPTION CHECK - START] Original Phone: ${phoneNumber} (DB: ${dbPhoneNumber})`);
 
     try {
         // STEP 1: Check AllowedNumber
+        // 🛠️ NEW LOGGING: Log the exact query filter
+        console.log(`[DB QUERY 1/2] Table: AllowedNumber, Filter: phone_number = '${dbPhoneNumber}'`);
+        
         const { data: allowedNumbers, error: allowedError } = await supabase
             .from('AllowedNumber')
-            // ⭐️ Included member_id here as well, although the function's main return doesn't use it.
             .select('user_id, member_id') 
             .eq('phone_number', dbPhoneNumber) 
             .limit(1);
@@ -146,8 +162,14 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         }
 
         const userId = allowedEntry.user_id;
+        // 🛠️ NEW LOGGING: Log the fetched user ID
+        console.log(`[QUERY 1/2 SUCCESS] Fetched UserID: ${userId}`);
+
 
         // STEP 2: Check User Table
+        // 🛠️ NEW LOGGING: Log the exact query filter
+        console.log(`[DB QUERY 2/2] Table: User, Filter: user_id = '${userId}'`);
+        
         const { data: users, error: userError } = await supabase
             .from('User')
             .select('plan_status, name') 
@@ -162,8 +184,12 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         const user = users ? users[0] : null;
 
         if (!user) {
+            console.log(`[QUERY 2/2 FAILURE] User data missing for ID: ${userId}`);
             return handleInactive(dbPhoneNumber, "User Data Missing");
         }
+        
+        // 🛠️ NEW LOGGING: Log the status found
+        console.log(`[SUBSCRIPTION CHECK - END] Status: ${user.plan_status}, Name: ${user.name}`);
 
         if (user.plan_status && user.plan_status.toLowerCase() === 'active') {
             return {
@@ -201,6 +227,9 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     console.log("[CALL PROCEED] Agent ONLINE.");
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
     
+    // 🛠️ NEW LOGGING: Log the incoming number before processing
+    console.log(`[INCOMING CALL] Processing number: ${incomingNumber}`);
+    
     const userData = await exports.checkSubscriptionStatus(incomingNumber);
     
     const callData = {
@@ -211,6 +240,9 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         ticket: userData.ticket,
         isExistingUser: userData.hasActiveSubscription
     };
+    
+    // 🛠️ NEW LOGGING: Log the final call data payload
+    console.log(`[INCOMING CALL] Payload to Frontend:`, callData);
     
     const ioInstance = ioInstanceGetter();
     if (ioInstance) {
@@ -226,16 +258,15 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
 };
 
 
-
 /**
  * Creates a ticket in the logging DB.
+ * **(LOGGING ADDED HERE)**
  */
 exports.createTicket = async (req, res) => {
     if (!logSupabase) {
         return res.status(500).json({ message: 'Ticket system offline.' });
     }
 
-    // ⭐️ Added userId and memberId extraction from request body for ticket logging
     const { phoneNumber, requestDetails, userId, memberId } = req.body; 
     const activeAgentId = req.headers['x-agent-id'] || 'AGENT_001'; 
 
@@ -244,6 +275,9 @@ exports.createTicket = async (req, res) => {
     }
 
     try {
+        // 🛠️ NEW LOGGING: Log data being prepared for insertion
+        console.log(`[TICKET CREATION] Inserting Data: UserID=${userId}, MemberID=${memberId}, Phone=${phoneNumber}`);
+
         const { data, error } = await logSupabase
             .from('tickets')
             .insert([{ 
@@ -252,7 +286,6 @@ exports.createTicket = async (req, res) => {
                 agent_id: activeAgentId, 
                 status: 'New', 
                 created_at: new Date().toISOString(),
-                // ⭐️ NEW FIELDS ADDED TO TICKET
                 user_id: userId,
                 member_id: memberId,
             }])
@@ -277,18 +310,22 @@ exports.createTicket = async (req, res) => {
 };
 
 
-
 /**
  * Fetches all address_line entries for a given user_id.
- * * Logic flow: User ID -> (Address) -> Address ID & Address Line
+ * **(LOGGING ADDED HERE)**
  */
 exports.getAddressByUserId = async (req, res) => {
     const { userId } = req.params; 
 
     if (!userId) return res.status(400).json({ message: 'Missing user ID.' });
-    console.log(`[USER ADDRESS LOOKUP] ID: ${userId}`);
+    
+    // 🛠️ NEW LOGGING: Verify the userId received from the frontend
+    console.log(`[USER ADDRESS LOOKUP - START] Received ID: ${userId}`);
 
     try {
+        // 🛠️ NEW LOGGING: Log the exact query filter
+        console.log(`[DB QUERY] Table: Address, Filter: user_id = '${userId}'`);
+
         const { data: addresses, error } = await supabase
             .from('Address')
             .select('address_id, user_id, address_line') 
@@ -304,6 +341,8 @@ exports.getAddressByUserId = async (req, res) => {
             message: 'Addresses fetched.',
             addresses: addresses || [] 
         });
+        
+        console.log("[USER ADDRESS LOOKUP - END] Response Sent.");
 
     } catch (e) {
         console.error("[USER ADDRESS EXCEPTION]", e.message);
@@ -359,7 +398,6 @@ exports.getAddressByAddressId = async (req, res) => {
 
 /**
  * Fetches active servicemen who are interested in the specific service.
- * Query Logic: WHERE is_active = true AND category ILIKE '%service%'
  */
 exports.getAvailableServicemen = async (req, res) => {
     console.group("🔍 [SERVICEMEN LOOKUP]");
@@ -384,15 +422,12 @@ exports.getAvailableServicemen = async (req, res) => {
 
     try {
         // 3. Database Query
-        // Table: 'services' 
         console.log(`[QUERY] Executing: SELECT * FROM services WHERE is_active=true AND category ILIKE '%${service}%'`);
         
         const { data, error } = await empSupabase
             .from('services') 
-            .select('*') // Selecting all columns
-            // Filter 1: Must be Active
+            .select('*')
             .eq('is_active', true)
-            // Filter 2: Service match (Case-insensitive partial match)
             .ilike('category', `%${service}%`);
 
         if (error) {
@@ -417,9 +452,6 @@ exports.getAvailableServicemen = async (req, res) => {
 
 /**
  * Creates a new dispatch record in the Employee Supabase Dispatch table.
- * PRIMARY KEY LOGIC: order_id is the key identifier for the dispatch event.
- * @param {object} req.body - Contains order_id (MANDATORY), category, request_address, 
- * order_request, order_status, and phone_number. user_id is optional but recommended.
  */
 exports.dispatchServiceman = async (req, res) => {
     console.group("📝 [DISPATCH NEW JOB]");
@@ -436,7 +468,6 @@ exports.dispatchServiceman = async (req, res) => {
     console.log("[INFO] Dispatch Data received:", dispatchData);
 
     // 3. Validation
-    // --- CHANGE: user_id is replaced by order_id as the primary required field for the transaction. ---
     const requiredFields = ['order_id', 'category', 'request_address', 'order_status', 'order_request', 'phone_number'];
     const missingFields = requiredFields.filter(field => !dispatchData[field]);
     
@@ -448,15 +479,17 @@ exports.dispatchServiceman = async (req, res) => {
 
     try {
         // 4. Insert into 'Dispatch' table in the Employee DB
-        // The table's primary key is likely 'id', but 'order_id' is the unique application key.
         const dataToInsert = {
             ...dispatchData,
             dispatched_at: new Date().toISOString(),
             order_status: dispatchData.order_status || 'Assigned' 
         };
+        
+        // 🛠️ NEW LOGGING: Log the data being inserted
+        console.log(`[DB INSERT] Inserting: Order ID ${dispatchData.order_id}`);
 
         const { data, error } = await empSupabase
-            .from('dispatch') // ⚠️ Ensure this table name is correct in your Employee DB
+            .from('dispatch') 
             .insert([dataToInsert])
             .select('*');
 
@@ -474,7 +507,7 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(201).json({
             message: 'Serviceman successfully dispatched.',
             dispatch_id: newDispatchId,
-            order_id: dispatchData.order_id, // Explicitly return the new key
+            order_id: dispatchData.order_id, 
             details: data[0]
         });
 
@@ -484,4 +517,3 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during dispatch.' });
     }
 };
-
