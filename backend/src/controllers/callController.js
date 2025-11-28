@@ -2,7 +2,7 @@ const { createClient } = require('@supabase/supabase-js');
 const agentController = require('./agentController'); 
 
 // ======================================================================
-// 1. MAIN SUPABASE (User/Subscription Lookup)
+// 1. MAIN SUPABASE (User/Subscription Lookup & ORDER Table)
 // ======================================================================
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY; 
@@ -409,65 +409,134 @@ exports.getAvailableServicemen = async (req, res) => {
 };
 
 // ======================================================================
-// Dispatch Serviceman (Reduced logging)
+// Dispatch Serviceman + Create Order (Modified)
 // ======================================================================
 
 /**
- * Creates a new dispatch record in the Employee Supabase Dispatch table.
+ * 1. Creates a dispatch record in Employee DB (Serviceman ID).
+ * 2. Fetches Customer User ID using Member ID.
+ * 3. Creates an Order record in Main DB (Customer ID).
  */
 exports.dispatchServiceman = async (req, res) => {
-    console.group("📝 [DISPATCH NEW JOB]");
+    console.group("📝 [FULL DISPATCH PROCESS]");
 
     if (!empSupabase) {
         console.error("❌ [ERROR] Employee DB not configured.");
         console.groupEnd();
-        return res.status(500).json({ message: 'Employee database unavailable for dispatch.' });
+        return res.status(500).json({ message: 'Employee database unavailable.' });
     }
 
     const dispatchData = req.body;
-    // console.log("[INFO] Dispatch Data received:", dispatchData); // Removed verbose body log
+    // We expect member_id to be passed from frontend now
+    const { order_id, category, request_address, order_status, order_request, phone_number, user_id, member_id } = dispatchData;
 
-    const requiredFields = ['order_id', 'category', 'request_address', 'order_status', 'order_request', 'phone_number'];
-    const missingFields = requiredFields.filter(field => !dispatchData[field]);
-    
-    if (missingFields.length > 0) {
-        console.error("⚠️ [ERROR] Missing required dispatch fields:", missingFields.join(', '));
+    // 1. Validation
+    if (!order_id || !user_id || !member_id || !category) {
+        console.error("⚠️ [ERROR] Missing fields. Required: order_id, user_id (serviceman), member_id, category");
         console.groupEnd();
-        return res.status(400).json({ message: 'Missing required dispatch data.', missingFields });
+        return res.status(400).json({ message: 'Missing required dispatch data.' });
     }
 
     try {
-        const dataToInsert = {
-            ...dispatchData,
-            dispatched_at: new Date().toISOString(),
-            order_status: dispatchData.order_status || 'Assigned' 
+        // ---------------------------------------------------------
+        // STEP 1: Insert into Employee DB (Dispatch Table)
+        // 'user_id' here is the SERVICEMAN
+        // ---------------------------------------------------------
+        console.log(`[STEP 1] Dispatching Serviceman (ID: ${user_id}) in Employee DB...`);
+        
+        const employeeDbData = {
+            order_id, 
+            user_id, // Serviceman
+            category,
+            request_address,
+            order_status: order_status || 'Assigned',
+            order_request,
+            phone_number,
+            dispatched_at: new Date().toISOString()
         };
 
-        const { data, error } = await empSupabase
+        const { data: empData, error: empError } = await empSupabase
             .from('dispatch') 
-            .insert([dataToInsert])
+            .insert([employeeDbData])
             .select('*');
 
-        if (error) {
-            console.error("❌ [SUPABASE ERROR]", JSON.stringify(error, null, 2));
+        if (empError) {
+            console.error("❌ [EMPLOYEE DB ERROR]", empError.message);
             console.groupEnd();
-            return res.status(500).json({ message: 'Database dispatch insert failed.', details: error.message });
+            return res.status(500).json({ message: 'Failed to insert into Dispatch table.', details: empError.message });
+        }
+        console.log("✅ [STEP 1 SUCCESS] Dispatch record created.");
+
+
+        // ---------------------------------------------------------
+        // STEP 2: Lookup Customer USER_ID in Main DB
+        // We use the member_id to find the Customer's user_id
+        // ---------------------------------------------------------
+        console.log(`[STEP 2] Looking up Customer User ID for Member ID: ${member_id}...`);
+        
+        const { data: allowedData, error: allowedError } = await supabase
+            .from('AllowedNumber')
+            .select('user_id')
+            .eq('member_id', member_id)
+            .limit(1);
+
+        if (allowedError || !allowedData || allowedData.length === 0) {
+            console.error("❌ [MAIN DB LOOKUP ERROR] Could not find User ID for this Member ID.");
+            // We do NOT stop the process, but we warn. Or we return 500? 
+            // For now, we return 500 because the Order table constraint likely needs user_id.
+            console.groupEnd();
+            return res.status(500).json({ message: 'Dispatch succeeded, but failed to find Customer User ID.' });
         }
 
-        const newDispatchId = data[0]?.id || 'N/A';
-        console.log(`✅ [SUCCESS] New Dispatch record created with ID: ${newDispatchId} (Order ID: ${dispatchData.order_id})`);
-        
+        const customerUserId = allowedData[0].user_id;
+        console.log(`✅ [STEP 2 SUCCESS] Customer User ID found: ${customerUserId}`);
+
+
+        // ---------------------------------------------------------
+        // STEP 3: Insert into Main DB (Order Table)
+        // 'user_id' here is the CUSTOMER
+        // ---------------------------------------------------------
+        console.log(`[STEP 3] Creating Order record in Main DB...`);
+
+        const mainDbOrderData = {
+            order_id: order_id,
+            user_id: customerUserId, // Customer
+            member_id: member_id,
+            service_category: category,      // Renamed to fit your prompt description
+            work_description: order_request, // Renamed to fit your prompt description
+            order_status: 'Assigned'
+        };
+
+        const { data: orderData, error: orderError } = await supabase
+            .from('Order') // Ensure table name is exactly 'Order' (Case sensitive in Supabase usually)
+            .insert([mainDbOrderData])
+            .select('*');
+
+        if (orderError) {
+            console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
+            // Note: Dispatch (Step 1) already happened. In a real world, we'd need a rollback logic.
+            // For now, reporting the error.
+            console.groupEnd();
+            return res.status(500).json({ 
+                message: 'Serviceman dispatched, but failed to create Order record.', 
+                details: orderError.message 
+            });
+        }
+        console.log("✅ [STEP 3 SUCCESS] Order record created.");
+
+        // ---------------------------------------------------------
+        // FINAL SUCCESS
+        // ---------------------------------------------------------
         console.groupEnd();
         res.status(201).json({
-            message: 'Serviceman successfully dispatched.',
-            dispatch_id: newDispatchId,
-            order_id: dispatchData.order_id, 
-            details: data[0]
+            message: 'Serviceman dispatched and Order created successfully.',
+            dispatch_id: empData[0]?.id,
+            order_id: order_id
         });
 
     } catch (e) {
         console.error("🛑 [EXCEPTION]", e.message);
         console.groupEnd();
-        res.status(500).json({ message: 'Internal server error during dispatch.' });
+        res.status(500).json({ message: 'Internal server error during full dispatch process.' });
     }
 };
