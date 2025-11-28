@@ -75,7 +75,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
     console.log(`[SUBSCRIPTION CHECK] Lookup for: ${phoneNumber} (DB: ${dbPhoneNumber})`);
 
     try {
-        // STEP 1: Check AllowedNumber
+        // STEP 1: Check AllowedNumber to get parent user_id
         const { data: allowedNumbers, error: allowedError } = await supabase
             .from('AllowedNumber')
             .select('user_id') 
@@ -96,7 +96,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 
         const userId = allowedEntry.user_id;
 
-        // STEP 2: Check User Table
+        // STEP 2: Check User Table with parent user_id
         const { data: users, error: userError } = await supabase
             .from('User')
             .select('plan_status, name') 
@@ -131,6 +131,55 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         return handleInactive(dbPhoneNumber, "System Error");
     }
 };
+
+/**
+ * 🔑 NEW ENDPOINT FUNCTION: getMemberIdByPhoneNumber
+ * Fetches the specific member_id from the Main Supabase 'AllowedNumber' table
+ * based on phone_number.
+ */
+exports.getMemberIdByPhoneNumber = async (req, res) => {
+    const { phoneNumber } = req.body;
+
+    if (!phoneNumber) {
+        return res.status(400).json({ message: 'Phone number is required.' });
+    }
+    
+    // Normalize phone number (remove non-digits, assuming your DB stores digits only)
+    const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+    console.log(`[MEMBER ID LOOKUP] Querying Main DB for phone: ${dbPhoneNumber}`);
+
+    try {
+        const { data, error } = await supabase
+            .from('AllowedNumber')
+            .select('member_id') // ✅ CORRECTED: Selecting the member_id column
+            .eq('phone_number', dbPhoneNumber)
+            .limit(1);
+
+        if (error) {
+            console.error("[MEMBER ID DB ERROR]", error.message);
+            return res.status(500).json({ message: 'Database error during member ID lookup.', details: error.message });
+        }
+
+        if (!data || data.length === 0) {
+            console.log(`[MEMBER ID 404] Phone number ${dbPhoneNumber} not found in AllowedNumber.`);
+            return res.status(404).json({ message: 'Phone number not found.' });
+        }
+
+        // ✅ CORRECTED: Accessing the member_id field
+        const memberId = data[0].member_id; 
+        console.log(`[MEMBER ID SUCCESS] Found ID: ${memberId}`);
+        
+        res.status(200).json({ 
+            message: 'Member ID fetched successfully.', 
+            member_id: memberId 
+        });
+
+    } catch (e) {
+        console.error("[MEMBER ID EXCEPTION]", e.message);
+        res.status(500).json({ message: 'Internal server error.' });
+    }
+};
+
 
 /**
  * Main handler for the incoming call webhook.
@@ -299,7 +348,6 @@ exports.getAddressByAddressId = async (req, res) => {
 
 /**
  * Fetches active servicemen who are interested in the specific service.
- * Query Logic: WHERE is_active = true AND category ILIKE '%service%'
  */
 exports.getAvailableServicemen = async (req, res) => {
     console.group("🔍 [SERVICEMEN LOOKUP]");
@@ -356,14 +404,11 @@ exports.getAvailableServicemen = async (req, res) => {
 };
 
 // ======================================================================
-// 🚀 NEW FUNCTION: Dispatch Serviceman (Insert into Employee DB Dispatch Table)
+// Dispatch Serviceman
 // ======================================================================
 
 /**
  * Creates a new dispatch record in the Employee Supabase Dispatch table.
- * PRIMARY KEY LOGIC: order_id is the key identifier for the dispatch event.
- * @param {object} req.body - Contains order_id (MANDATORY), category, request_address, 
- * order_request, order_status, and phone_number. user_id is optional but recommended.
  */
 exports.dispatchServiceman = async (req, res) => {
     console.group("📝 [DISPATCH NEW JOB]");
@@ -380,7 +425,6 @@ exports.dispatchServiceman = async (req, res) => {
     console.log("[INFO] Dispatch Data received:", dispatchData);
 
     // 3. Validation
-    // --- CHANGE: user_id is replaced by order_id as the primary required field for the transaction. ---
     const requiredFields = ['order_id', 'category', 'request_address', 'order_status', 'order_request', 'phone_number'];
     const missingFields = requiredFields.filter(field => !dispatchData[field]);
     
@@ -392,7 +436,6 @@ exports.dispatchServiceman = async (req, res) => {
 
     try {
         // 4. Insert into 'Dispatch' table in the Employee DB
-        // The table's primary key is likely 'id', but 'order_id' is the unique application key.
         const dataToInsert = {
             ...dispatchData,
             dispatched_at: new Date().toISOString(),
@@ -428,6 +471,3 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error during dispatch.' });
     }
 };
-
-
-
