@@ -533,7 +533,8 @@ exports.dispatchServiceman = async (req, res) => {
 // ======================================================================
 
 /**
- * 🚀 GET: Fetch all 'Assigned' orders for a specific phone number.
+ * 🚀 GET: Fetch all 'Assigned' orders for a specific member via phone number.
+ * Logic: Phone -> AllowedNumber(member_id) -> Order(member_id)
  * URL: /call/orders/assigned?phoneNumber=...
  */
 exports.getAssignedOrders = async (req, res) => {
@@ -544,28 +545,34 @@ exports.getAssignedOrders = async (req, res) => {
     }
 
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    console.log(`🔎 [ASSIGNED ORDERS] Lookup for: ${dbPhoneNumber}`);
+    console.log(`🔎 [ASSIGNED ORDERS] Lookup for Member ID via Phone: ${dbPhoneNumber}`);
 
     try {
-        // 1. Get User ID from Phone Number
+        // 1. Get MEMBER ID from Phone Number (Table: AllowedNumber)
         const { data: allowedData, error: allowedError } = await supabase
             .from('AllowedNumber')
-            .select('user_id')
+            .select('member_id')
             .eq('phone_number', dbPhoneNumber)
             .limit(1);
 
-        if (allowedError || !allowedData || allowedData.length === 0) {
-            console.warn("⚠️ User not found for this phone number.");
-            return res.status(404).json({ message: "User not found." });
+        if (allowedError) {
+            console.error("❌ AllowedNumber Lookup Error:", allowedError.message);
+            return res.status(500).json({ message: "Database error looking up member." });
         }
 
-        const userId = allowedData[0].user_id;
+        if (!allowedData || allowedData.length === 0) {
+            console.warn("⚠️ Member ID not found for this phone number.");
+            return res.status(404).json({ message: "Member not found." });
+        }
 
-        // 2. Query Order table for 'Assigned' status
+        const memberId = allowedData[0].member_id;
+        console.log(`✅ Found Member ID: ${memberId}. Fetching Assigned Orders...`);
+
+        // 2. Query Order table for 'Assigned' status using MEMBER ID
         const { data: orders, error: orderError } = await supabase
             .from('Order')
-            .select('*') // Select all fields (including order_id, status, work_description)
-            .eq('user_id', userId)
+            .select('*') 
+            .eq('member_id', memberId) // 🚀 CHANGED: Now using member_id
             .eq('order_status', 'Assigned')
             .order('created_at', { ascending: false });
 
@@ -577,7 +584,7 @@ exports.getAssignedOrders = async (req, res) => {
         // Map 'work_description' to 'request_details' if necessary for frontend consistency
         const mappedOrders = orders.map(o => ({
             ...o,
-            request_details: o.work_description || o.request_details // Fallback to handle column naming differences
+            request_details: o.work_description || o.request_details 
         }));
 
         res.status(200).json({ orders: mappedOrders });
