@@ -6,7 +6,7 @@ const admin = require('firebase-admin');
 const serviceAccount = require('./path-to-your-serviceAccountKey.json'); 
 
 // ⚠️ IMPORTANT: Replace this with your Realtime Database URL
-const databaseURL = 'https://YOUR-FIREBASE-PROJECT-ID-default-rtdb.firebaseio.com';
+const databaseURL = 'https://project-8812136035477954307-default-rtdb.firebaseio.com/';
 
 if (!admin.apps.length) {
     admin.initializeApp({
