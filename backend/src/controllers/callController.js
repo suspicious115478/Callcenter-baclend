@@ -470,7 +470,7 @@ exports.dispatchServiceman = async (req, res) => {
         order_status, order_request, 
         address_id,
         ticket_id,
-        **admin_id** // ⬅️ NEW: Destructure admin_id from the request body
+        admin_id // ⬅️ NEW: Destructure admin_id from the request body
     } = dispatchData; 
 
     let customerUserId = null;
@@ -758,3 +758,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
