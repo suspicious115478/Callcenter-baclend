@@ -68,6 +68,7 @@ const handleInactive = (dbPhoneNumber, name) => ({
  */
 const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
     if (!customerUserId) {
+        console.log("⚠️ [NAME LOOKUP] No customerUserId provided.");
         return 'Unknown Customer';
     }
 
@@ -77,26 +78,45 @@ const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
         // Case #1: member_id is NOT NULL - Fetch from Member table
         if (resolvedMemberId) {
             console.log(`🔎 [NAME LOOKUP] Trying Member table for member_id: ${resolvedMemberId}`);
-            const { data: memberData } = await supabase
+            const { data: memberData, error: memberError } = await supabase
                 .from('Member')
                 .select('name') // Assuming the Member table has a 'name' column
                 .eq('member_id', resolvedMemberId)
                 .limit(1);
 
-            if (memberData && memberData.length > 0 && memberData[0].name) {
-                customerName = memberData[0].name;
-                console.log(`✅ [NAME LOOKUP] Found name in Member table: ${customerName}`);
-                return customerName;
+            if (memberError) {
+                console.error(`❌ [NAME LOOKUP] Member DB Error: ${memberError.message}`);
+                // Continue to User lookup on DB error
+            } else if (memberData && memberData.length > 0) {
+                // Member record was found
+                customerName = memberData[0].name; // Can be null/undefined/""
+
+                if (customerName) {
+                    console.log(`✅ [NAME LOOKUP] Found name in Member table: ${customerName}`);
+                    return customerName;
+                } else {
+                    // **CRITICAL LOGGING ADDED HERE**
+                    console.warn(`⚠️ [NAME LOOKUP] Member record found for ID ${resolvedMemberId}, but name column is NULL/EMPTY. Falling back to User table.`);
+                    // **DO NOT RETURN HERE. Proceed to Case #2.**
+                }
+            } else {
+                console.warn(`⚠️ [NAME LOOKUP] No Member record found for ID: ${resolvedMemberId}. Falling back to User table.`);
+                // Proceed to Case #2
             }
         }
 
-        // Case #2 (or Case #1 fallback): member_id is NULL or Member lookup failed/returned no name - Fetch from User table
+        // Case #2: member_id is NULL or Member lookup failed/returned no name - Fetch from User table
         console.log(`🔎 [NAME LOOKUP] Falling back to User table for user_id: ${customerUserId}`);
-        const { data: userData } = await supabase
+        const { data: userData, error: userError } = await supabase
             .from('User')
             .select('name') // Assuming the User table has a 'name' column
             .eq('user_id', customerUserId)
             .limit(1);
+
+        if (userError) {
+            console.error(`❌ [NAME LOOKUP] User DB Error: ${userError.message}`);
+            return 'Unknown Customer (DB Error)';
+        }
 
         if (userData && userData.length > 0 && userData[0].name) {
             customerName = userData[0].name;
@@ -727,3 +747,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
