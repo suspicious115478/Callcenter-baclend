@@ -4,8 +4,7 @@ const admin = require('firebase-admin');
 // 🛑 SECURITY RISK: Key is embedded directly. Use ENV variables in production.
 
 // 1. Define the private key using a clean template literal
-const rawPrivateKey = `
------BEGIN PRIVATE KEY-----
+const rawPrivateKey = `-----BEGIN PRIVATE KEY-----
 MIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAQDlz5HL0TRPF3RD
 rCo61sLOQM1QXwlh/4DBb+TGpLQi9Kdo7r2N/9d4DJsMqzP1Xd4I8LOQM7Uw5pLp
 BBmP8Pd8OJlvvCBsILl0W2pn73HPpKrJJjO7d6GP+CYQilB7IX9171enfdbL9VsH
@@ -26,14 +25,13 @@ pTgILaJjQ4MhsXMjqESWAIfuSOltkifQlcR3YVxezaXPC5a1mdthBOHFZQf6FMIF
 YHIjRUECgYEAmXW8imZuC42B4I9M93tp+YR38rux2OiaisJSE8c0/wfbmF1OD5y/
 VBp2oZYnOlaQ4MCAKj/34VjzOMRVuWEWCNFwWneHx1jgl7rNIX6EipMcVEQJO8v4
 DY8OHWgdcNMbd/ipj0+yNW4Sd2/n1HaPVc0HCE5wQnYGG3lOKbZ4cQECgYA9K828
-TEaIMshWyBU6CNTbrgrtEaEHFywnYANSv1PrEtYdKmxdhT2d75Bh0hcg5E5JM2bD3
+TEaIMshWyBU6CNTbrgrEaEHFywnYANSv1PrEtYdKmxdhT2d75Bh0hcg5E5JM2bD3
 ixMjOtljryE9E7718ZIstHhv5K1DY+TD2+FXlC0WaicXYF7gy+g34kl+gKKrwyeT
 nPeg4029biWMj4kxsRqDnrv41XmJ42ZyAQcrAQKBgDbMQpxyn9OkT7lIliDGAPSU
 zzwa+wLnE7dh1Pr2IOwrZ36TAVzvRJQTsmD61bKT8itidAlVR12golsCuz2C6xxE
 obyheNQdIfDf4azhowtzyQN4K0UIoLQeL6UVBUhiD6/pO0WNmMkssH7vP2jLPh6l
 czCyPxWoiledoka/VNoa
------END PRIVATE KEY-----
-`.replace(/\s+/g, '\n').trim(); // Ensure only one newline separates data lines, and strip outer padding.
+-----END PRIVATE KEY-----`,
 
 
 const serviceAccountKey = {
