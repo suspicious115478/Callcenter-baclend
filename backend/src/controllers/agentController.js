@@ -50,6 +50,48 @@ const registerAgent = async (req, res) => {
     }
 };
 
+// --- 🔥 NEW FUNCTION: Fetch Admin ID by Firebase UID ---
+/**
+ * API Handler: GET /agent/adminid/:firebaseUid
+ * Retrieves the admin_id from the Firebase RTDB for the given Firebase UID.
+ */
+const getAdminIdByFirebaseUid = async (req, res) => {
+    const { firebaseUid } = req.params;
+    
+    if (!firebaseUid) {
+        return res.status(400).json({ message: 'Missing Firebase UID parameter.' });
+    }
+
+    try {
+        const agentRef = db.ref(`agents/${firebaseUid}`);
+        const snapshot = await agentRef.once('value');
+        const agentData = snapshot.val();
+
+        if (!agentData) {
+            console.log(`[ADMIN ID LOOKUP] No agent found for UID: ${firebaseUid}`);
+            // Return 404 as requested by the frontend expectation
+            return res.status(404).json({ message: 'Admin Not Found', details: `No agent found for UID ${firebaseUid}` });
+        }
+
+        const admin_id = agentData.admin_id;
+
+        if (!admin_id) {
+            console.error(`[ADMIN ID LOOKUP ERROR] Admin ID missing for agent: ${firebaseUid}`);
+            return res.status(500).json({ message: 'Admin ID found in DB, but is null/empty.' });
+        }
+        
+        console.log(`[ADMIN ID LOOKUP SUCCESS] Found Admin ID ${admin_id} for UID ${firebaseUid}.`);
+        
+        // Respond with the required format: { admin_id: "..." }
+        res.json({ admin_id }); 
+
+    } catch (error) {
+        console.error('[ADMIN ID LOOKUP ERROR] Database fetch failed:', error);
+        res.status(500).json({ message: 'Error Fetching Admin ID from database.', details: error.message });
+    }
+};
+// -----------------------------------------------------------
+
 
 // --- EXISTING: Agent Status Handlers (No change to logic, just refactored for module.exports) ---
 /**
@@ -99,4 +141,6 @@ module.exports = {
     getRawStatus,
     // 🚨 Export the new registration function
     registerAgent,
+    // 🔥 EXPORT NEW FUNCTION
+    getAdminIdByFirebaseUid,
 };
