@@ -541,11 +541,12 @@ exports.getAssignedOrders = async (req, res) => {
     const { phoneNumber } = req.query;
 
     if (!phoneNumber) {
+        console.log("⚠️ [ASSIGNED ORDERS] Phone number is missing in query.");
         return res.status(400).json({ message: "Phone number is required." });
     }
 
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-    console.log(`🔎 [ASSIGNED ORDERS] Lookup for Member ID via Phone: ${dbPhoneNumber}`);
+    console.log(`🔎 [ASSIGNED ORDERS] Starting lookup for phone: ${dbPhoneNumber}`);
 
     try {
         // 1. Get MEMBER ID from Phone Number (Table: AllowedNumber)
@@ -556,30 +557,35 @@ exports.getAssignedOrders = async (req, res) => {
             .limit(1);
 
         if (allowedError) {
-            console.error("❌ AllowedNumber Lookup Error:", allowedError.message);
+            console.error("❌ [ASSIGNED ORDERS] AllowedNumber DB Error:", allowedError.message);
             return res.status(500).json({ message: "Database error looking up member." });
         }
 
         if (!allowedData || allowedData.length === 0) {
-            console.warn("⚠️ Member ID not found for this phone number.");
-            return res.status(404).json({ message: "Member not found." });
+            console.warn("⚠️ [ASSIGNED ORDERS] Member ID not found for phone number. Returning empty array.");
+            return res.status(200).json({ orders: [] }); // Return 200 with empty list if member not found
         }
 
         const memberId = allowedData[0].member_id;
-        console.log(`✅ Found Member ID: ${memberId}. Fetching Assigned Orders...`);
+        console.log(`✅ [ASSIGNED ORDERS] Found Member ID: ${memberId}.`);
+        console.log(`🔎 [ASSIGNED ORDERS] Querying Order table for status 'Assigned'...`);
+
 
         // 2. Query Order table for 'Assigned' status using MEMBER ID
         const { data: orders, error: orderError } = await supabase
             .from('Order')
             .select('*') 
-            .eq('member_id', memberId) // 🚀 CHANGED: Now using member_id
+            .eq('member_id', memberId)
             .eq('order_status', 'Assigned')
             .order('created_at', { ascending: false });
 
         if (orderError) {
-            console.error("❌ Order Fetch Error:", orderError.message);
+            console.error("❌ [ASSIGNED ORDERS] Order Fetch Error:", orderError.message);
             return res.status(500).json({ message: "Database error fetching orders." });
         }
+        
+        const count = orders ? orders.length : 0;
+        console.log(`✨ [ASSIGNED ORDERS] Found ${count} assigned orders for member ${memberId}.`);
 
         // Map 'work_description' to 'request_details' if necessary for frontend consistency
         const mappedOrders = orders.map(o => ({
@@ -590,7 +596,7 @@ exports.getAssignedOrders = async (req, res) => {
         res.status(200).json({ orders: mappedOrders });
 
     } catch (e) {
-        console.error("🛑 [EXCEPTION]", e.message);
+        console.error("🛑 [ASSIGNED ORDERS EXCEPTION]", e.message);
         res.status(500).json({ message: "Server error." });
     }
 };
