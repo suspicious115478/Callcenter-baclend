@@ -31,7 +31,7 @@ nPeg4029biWMj4kxsRqDnrv41XmJ42ZyAQcrAQKBgDbMQpxyn9OkT7lIliDGAPSU
 zzwa+wLnE7dh1Pr2IOwrZ36TAVzvRJQTsmD61bKT8itidAlVR12golsCuz2C6xxE
 obyheNQdIfDf4azhowtzyQN4K0UIoLQeL6UVBUhiD6/pO0WNmMkssH7vP2jLPh6l
 czCyPxWoiledoka/VNoa
------END PRIVATE KEY-----`,
+-----END PRIVATE KEY-----`;
 
 
 const serviceAccountKey = {
