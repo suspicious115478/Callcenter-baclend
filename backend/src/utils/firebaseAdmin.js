@@ -2,15 +2,10 @@
 const admin = require('firebase-admin');
 
 // 🛑 SECURITY RISK: Key is embedded directly. Use ENV variables in production.
-const serviceAccountKey = {
-    "type": "service_account",
-    "project_id": "project-8812136035477954307",
-    "private_key_id": "052c66c9345994dac2ab69e494167cc8dbcac472",
-    
-    // 🔥 CRITICAL FIX: The private_key string is passed through a method 
-    // to ensure it only contains necessary newlines and no extra spaces or tabs.
-    // I am using a template literal here for cleaner multi-line input in JS.
-    "private_key": `-----BEGIN PRIVATE KEY-----
+
+// 1. Define the private key using a clean template literal
+const rawPrivateKey = `
+-----BEGIN PRIVATE KEY-----
 MIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAQDlz5HL0TRPF3RD
 rCo61sLOQM1QXwlh/4DBb+TGpLQi9Kdo7r2N/9d4DJsMqzP1Xd4I8LOQM7Uw5pLp
 BBmP8Pd8OJlvvCBsILl0W2pn73HPpKrJJjO7d6GP+CYQilB7IX9171enfdbL9VsH
@@ -37,8 +32,15 @@ nPeg4029biWMj4kxsRqDnrv41XmJ42ZyAQcrAQKBgDbMQpxyn9OkT7lIliDGAPSU
 zzwa+wLnE7dh1Pr2IOwrZ36TAVzvRJQTsmD61bKT8itidAlVR12golsCuz2C6xxE
 obyheNQdIfDf4azhowtzyQN4K0UIoLQeL6UVBUhiD6/pO0WNmMkssH7vP2jLPh6l
 czCyPxWoiledoka/VNoa
------END PRIVATE KEY-----`.replace(/\s+/g, '\n').trim(), // Clean whitespace and enforce single newlines between data lines
-    
+-----END PRIVATE KEY-----
+`.replace(/\s+/g, '\n').trim(); // Ensure only one newline separates data lines, and strip outer padding.
+
+
+const serviceAccountKey = {
+    "type": "service_account",
+    "project_id": "project-8812136035477954307",
+    "private_key_id": "052c66c9345994dac2ab69e494167cc8dbcac472",
+    "private_key": rawPrivateKey, // Use the cleaned string
     "client_email": "firebase-adminsdk-fbsvc@project-8812136035477954307.iam.gserviceaccount.com",
     "client_id": "102286591606476992488",
     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
