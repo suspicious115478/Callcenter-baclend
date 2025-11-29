@@ -60,6 +60,59 @@ const handleInactive = (dbPhoneNumber, name) => ({
     ticket: "New Call - Search Required"
 });
 
+/**
+ * Fetches the customer name based on member_id or falls back to user_id.
+ * @param {string} customerUserId - The user_id associated with the customer.
+ * @param {string | null} resolvedMemberId - The member_id, which may be null.
+ * @returns {Promise<string>} The customer's name or 'Unknown Customer'.
+ */
+const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
+    if (!customerUserId) {
+        return 'Unknown Customer';
+    }
+
+    try {
+        let customerName = null;
+
+        // Case #1: member_id is NOT NULL - Fetch from Member table
+        if (resolvedMemberId) {
+            console.log(`🔎 [NAME LOOKUP] Trying Member table for member_id: ${resolvedMemberId}`);
+            const { data: memberData } = await supabase
+                .from('Member')
+                .select('name') // Assuming the Member table has a 'name' column
+                .eq('member_id', resolvedMemberId)
+                .limit(1);
+
+            if (memberData && memberData.length > 0 && memberData[0].name) {
+                customerName = memberData[0].name;
+                console.log(`✅ [NAME LOOKUP] Found name in Member table: ${customerName}`);
+                return customerName;
+            }
+        }
+
+        // Case #2 (or Case #1 fallback): member_id is NULL or Member lookup failed/returned no name - Fetch from User table
+        console.log(`🔎 [NAME LOOKUP] Falling back to User table for user_id: ${customerUserId}`);
+        const { data: userData } = await supabase
+            .from('User')
+            .select('name') // Assuming the User table has a 'name' column
+            .eq('user_id', customerUserId)
+            .limit(1);
+
+        if (userData && userData.length > 0 && userData[0].name) {
+            customerName = userData[0].name;
+            console.log(`✅ [NAME LOOKUP] Found name in User table: ${customerName}`);
+            return customerName;
+        }
+
+        console.warn("⚠️ [NAME LOOKUP] Name not found in Member or User table.");
+        return 'Unknown Customer';
+
+    } catch (e) {
+        console.error("🛑 [NAME LOOKUP EXCEPTION]", e.message);
+        return 'Unknown Customer';
+    }
+};
+
 // ----------------------------------------------------------------------
 // CONTROLLER FUNCTIONS
 // ----------------------------------------------------------------------
@@ -378,7 +431,7 @@ exports.getAvailableServicemen = async (req, res) => {
 };
 
 // ======================================================================
-// Dispatch Serviceman + Create Order (Modified for Resilience)
+// Dispatch Serviceman + Create Order (Modified for Resilience & Customer Name)
 // ======================================================================
 
 exports.dispatchServiceman = async (req, res) => {
@@ -402,6 +455,7 @@ exports.dispatchServiceman = async (req, res) => {
     let customerUserId = null;
     let resolvedMemberId = member_id;
     let resolvedAddressId = address_id;
+    let resolvedCustomerName = 'Unknown Customer'; // Initialize new variable
 
     if (!order_id || !user_id || !category || !ticket_id) {
         console.error(`⚠️ [ERROR] Missing essential dispatch data.`);
@@ -421,13 +475,15 @@ exports.dispatchServiceman = async (req, res) => {
                 .limit(1);
 
             if (allowedError || !allowedData || allowedData.length === 0) {
-                console.error("❌ [MAIN DB LOOKUP ERROR] Customer not found.");
+                console.error("❌ [MAIN DB LOOKUP ERROR] Customer not found via phone number.");
                 console.groupEnd();
-                return res.status(500).json({ message: 'Customer not found via phone number lookup.' });
-            }
-
-            resolvedMemberId = allowedData[0].member_id;
-            customerUserId = allowedData[0].user_id;
+                // Instead of failing the whole dispatch, we continue with 'Unknown Customer' for the Dispatch table
+                // return res.status(500).json({ message: 'Customer not found via phone number lookup.' }); 
+                customerUserId = null; // Set to null to indicate failure for subsequent main DB lookups
+            } else {
+                resolvedMemberId = allowedData[0].member_id;
+                customerUserId = allowedData[0].user_id;
+            }
 
         } else if (resolvedMemberId) {
             const { data: allowedData, error: allowedError } = await supabase
@@ -449,7 +505,13 @@ exports.dispatchServiceman = async (req, res) => {
             return res.status(400).json({ message: 'Missing required customer identifier.' });
         }
         
-        // Resolve Address ID
+        // 🌟 NEW STEP: Fetch Customer Name
+        if (customerUserId) {
+            resolvedCustomerName = await fetchCustomerName(customerUserId, resolvedMemberId);
+        }
+        // ---------------------------------
+
+        // Resolve Address ID (Only if we successfully found a customerUserId)
         if (!resolvedAddressId && customerUserId) {
             const { data: addressData } = await supabase
                 .from('Address')
@@ -472,7 +534,9 @@ exports.dispatchServiceman = async (req, res) => {
             order_request,
             phone_number,
             ticket_id,
-            dispatched_at: new Date().toISOString()
+            dispatched_at: new Date().toISOString(),
+            // ⭐️ NEW CUSTOMER NAME COLUMN
+            customer_name: resolvedCustomerName,
         };
 
         const { data: empData, error: empError } = await empSupabase
@@ -513,7 +577,7 @@ exports.dispatchServiceman = async (req, res) => {
             return res.status(500).json({ message: 'Serviceman dispatched, but Order record failed.', details: orderError.message });
         }
 
-        console.log("✅ [SUCCESS] Dispatch Complete.");
+        console.log(`✅ [SUCCESS] Dispatch Complete for Customer: ${resolvedCustomerName}.`);
         console.groupEnd();
         res.status(201).json({
             message: 'Serviceman dispatched and Order created successfully.',
@@ -631,14 +695,14 @@ exports.cancelOrder = async (req, res) => {
             // This captures the permission error if it was a Supabase RLS failure
             return res.status(500).json({ message: "Failed to update Order status due to database error.", details: mainError.message });
         }
-        
-        // **If data is null, it means the row was not found (or not updated due to RLS).**
-        if (!mainData) {
-            console.error(`⚠️ Main DB Update Failed: Order ID ${orderId} not found or update blocked (0 rows affected).`);
-            return res.status(404).json({ message: `Order ID ${orderId} not found or already cancelled.` });
-        }
-        
-        console.log(`✅ Main DB Order #${orderId} status set to ${newStatus}.`);
+        
+        // **If data is null, it means the row was not found (or not updated due to RLS).**
+        if (!mainData) {
+            console.error(`⚠️ Main DB Update Failed: Order ID ${orderId} not found or update blocked (0 rows affected).`);
+            return res.status(404).json({ message: `Order ID ${orderId} not found or already cancelled.` });
+        }
+        
+        console.log(`✅ Main DB Order #${orderId} status set to ${newStatus}.`);
 
 
         // 2. Update Employee DB (Dispatch Table) if connected
