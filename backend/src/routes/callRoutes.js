@@ -1,18 +1,22 @@
 // backend/src/routes/callRoutes.js
 
 const express = require("express");
-// 🚨 MODIFICATION: Import all necessary functions including the new getAvailableServicemen and dispatchServiceman
-const { 
-    getIncomingCall, 
-    createTicket, 
-    getAddressByUserId, 
-    getAddressByAddressId,
-    getAvailableServicemen, // 🚀 NEW IMPORT (Existing)
-    dispatchServiceman,      // 🚀 NEW IMPORT (From previous update)
-    getMemberIdByPhoneNumber
-} = require("../controllers/callController"); 
 
-const { io } = require("../socket/socketHandler"); 
+// 🚨 MODIFICATION: Make sure to import the new controller functions!
+const { 
+    getIncomingCall, 
+    createTicket, 
+    getAddressByUserId, 
+    getAddressByAddressId,
+    getAvailableServicemen,
+    dispatchServiceman,
+    getMemberIdByPhoneNumber,
+    // 🚀 NEW IMPORTS REQUIRED FOR THE DASHBOARD LOGIC
+    getAssignedOrders,    // <-- You need this function in your controller
+    cancelOrder           // <-- You need this function in your controller
+} = require("../controllers/callController"); 
+
+const { io } = require("../socket/socketHandler"); 
 
 const router = express.Router();
 
@@ -25,23 +29,30 @@ router.get('/address/lookup/:addressId', getAddressByAddressId);
 router.get("/address/:userId", getAddressByUserId);
 
 // 3. Incoming Call Webhook
-router.get("/incoming", getIncomingCall(io)); 
+router.get("/incoming", getIncomingCall(io)); 
+
+// 🚀 4. NEW ROUTE: Fetch Assigned Orders
+router.get("/orders/assigned", getAssignedOrders); // <-- FIX: Handles /call/orders/assigned?phoneNumber=...
 
 
 // --- POST Routes ---
 
-// 4. Create Ticket
+// 5. Create Ticket
 router.post("/ticket", createTicket);
 
-// 5. Fetch Available Servicemen
+// 6. Fetch Available Servicemen
 router.post("/servicemen/available", getAvailableServicemen);
 
-// 🚀 6. NEW ROUTE: Dispatch Serviceman
-// This handles the POST request to assign a job to a serviceman in the Employee DB
+// 7. Dispatch Serviceman
 router.post("/dispatch", dispatchServiceman);
-// 7. Fetch Member ID by Phone Number (The missing route)
+
+// 8. Fetch Member ID by Phone Number
 router.post("/memberid/lookup", getMemberIdByPhoneNumber);
 
 
-module.exports = router;
+// --- PUT Routes ---
 
+// 🚀 9. NEW ROUTE: Cancel Order
+router.put("/orders/cancel", cancelOrder); // <-- FIX: Handles /call/orders/cancel
+
+module.exports = router;
