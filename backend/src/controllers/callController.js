@@ -211,8 +211,7 @@ const checkDispatchPresence = async (phoneNumber) => {
             .from('dispatch')
             .select('*')
             .eq('phone_number', dbPhoneNumber)
-            .order('dispatched_at', { ascending: false }) // Get the latest one
-            .limit(1);
+            
 
         if (error) {
             console.error("[DISPATCH CHECK ERROR]", error.message);
@@ -905,5 +904,6 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
