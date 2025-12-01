@@ -257,6 +257,7 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     let employeeData = null;
 
     if (empSupabase) {
+                console.log(`[FLOW TRACE] Starting Employee DB check.`);
         // FIX: Reconstruct the E.164 format to match the database storage (+91...)
         const e164PhoneNumber = `+${dbPhoneNumber}`;
         console.log(`🔎 [EMPLOYEE CHECK] Looking up: ${e164PhoneNumber}...`);
@@ -781,4 +782,5 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
