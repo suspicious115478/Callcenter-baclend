@@ -139,42 +139,60 @@ const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
  * Checks 'users' table in Employee DB using 'mobile_number'.
  */
 const checkIfCallerIsEmployee = async (phoneNumber) => {
-    if (!empSupabase) return null;
+    if (!empSupabase) {
+        console.warn("⚠️ Employee DB not connected. Skipping check.");
+        console.groupEnd();
+        return null;
+    }
 
-    const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+   const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+    console.log(`> Raw Input:      "${phoneNumber}"`);
+    console.log(`> Database Key:   "${dbPhoneNumber}"`);
 
     try {
-        // Checking the 'users' table in Employee Database
+        // 2. Perform Query
+        console.log(`> Querying 'users' table where mobile_number = '${dbPhoneNumber}'...`);
+        
         const { data, error } = await empSupabase
             .from('users') 
             .select('*')
-            .eq('mobile_number', dbPhoneNumber) // Using mobile_number as requested
+            .eq('mobile_number', dbPhoneNumber) // ⚠️ Ensure this column name matches your DB exactly!
             .limit(1);
 
+        // 3. Log Results
         if (error) {
-            console.error("[EMPLOYEE CHECK ERROR]", error.message);
+            console.error(`❌ DB Query Error: ${error.message}`);
+            console.groupEnd();
             return null;
         }
 
+        console.log(`> Result Rows Found: ${data ? data.length : 0}`);
+
         if (data && data.length > 0) {
             const employee = data[0];
-            console.log(`👨‍🔧 [EMPLOYEE CALL DETECTED] Name: ${employee.name}, Role: ${employee.role || 'Staff'}`);
+            console.log(`✅ MATCH FOUND!`);
+            console.log(`   - Name: ${employee.name}`);
+            console.log(`   - Role: ${employee.role}`);
+            console.log(`   - ID:   ${employee.id}`);
+            console.groupEnd();
             
             return {
                 isEmployee: true,
                 userName: `${employee.name} (Employee)`,
                 subscriptionStatus: "Internal Staff",
-                // You can route this to the Help Desk or a specific Staff Page
-                dashboardLink: `/employee-help-desk`, 
+                dashboardLink: `/employee-help-desk`, // Redirects here
                 ticket: `Internal Call - ${employee.role || 'Staff'}`,
                 employeeData: employee
             };
+        } else {
+            console.log("❌ No match in 'users' table.");
+            console.groupEnd();
+            return null; 
         }
 
-        return null; // Not an employee
-
     } catch (e) {
-        console.error("[EMPLOYEE CHECK EXCEPTION]", e.message);
+        console.error(`🛑 Exception in Employee Check: ${e.message}`);
+        console.groupEnd();
         return null;
     }
 };
@@ -887,3 +905,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
