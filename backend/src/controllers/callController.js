@@ -83,7 +83,7 @@ const checkIsEmployee = async (phoneNumber) => {
             .limit(1);
 
         if (employeeError) {
-            console.error("❌ [EMPLOYEE CHECK FAILED] DB Error: ${employeeError.message}`);
+            console.error(`❌ [EMPLOYEE CHECK FAILED] DB Error: ${employeeError.message}`);
             return { isEmployee: false, employeeName: null };
         }
 
@@ -822,3 +822,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
