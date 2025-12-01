@@ -145,7 +145,7 @@ const checkIfCallerIsEmployee = async (phoneNumber) => {
         return null;
     }
 
-   const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+   const dbPhoneNumber = phoneNumber.replace(/[^0-9+]/g, '');
     console.log(`> Raw Input:      "${phoneNumber}"`);
     console.log(`> Database Key:   "${dbPhoneNumber}"`);
 
@@ -905,4 +905,5 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
