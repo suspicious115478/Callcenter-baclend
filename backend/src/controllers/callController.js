@@ -505,7 +505,6 @@ exports.getAvailableServicemen = async (req, res) => {
 // ======================================================================
 
 exports.dispatchServiceman = async (req, res) => {
-    // ... (Existing implementation of dispatchServiceman) ...
     console.group("📝 [FULL DISPATCH PROCESS]");
 
     if (!empSupabase) {
@@ -555,7 +554,8 @@ exports.dispatchServiceman = async (req, res) => {
 
             if (allowedError || !allowedData || allowedData.length === 0) {
                 console.error("❌ [MAIN DB LOOKUP ERROR] Customer not found via phone number.");
-                customerUserId = null; // Set to null to indicate failure for subsequent main DB lookups
+                // If member/user ID isn't found, we can't create a fully linked Order, but we can proceed with Dispatch
+                customerUserId = null; 
             } else {
                 resolvedMemberId = allowedData[0].member_id;
                 customerUserId = allowedData[0].user_id;
@@ -571,7 +571,8 @@ exports.dispatchServiceman = async (req, res) => {
             if (allowedError || !allowedData || allowedData.length === 0) {
                 console.error("❌ [MAIN DB LOOKUP ERROR] Customer User ID not found.");
                 console.groupEnd();
-                return res.status(500).json({ message: 'Member ID lookup failed.' });
+                // If we have a member_id but can't resolve user_id, it's a critical failure for the Order table.
+                return res.status(500).json({ message: 'Member ID lookup failed or User ID missing.' }); 
             }
 
             customerUserId = allowedData[0].user_id;
@@ -611,7 +612,7 @@ exports.dispatchServiceman = async (req, res) => {
             phone_number,
             ticket_id,
             dispatched_at: new Date().toISOString(),
-            customer_name: resolvedCustomerName,
+            customer_name: resolvedCustomerName, // ⬅️ NEW: Added customer_name
             admin_id: admin_id // ⬅️ NEW: Adding admin_id to the dispatch table data
         };
 
@@ -626,37 +627,42 @@ exports.dispatchServiceman = async (req, res) => {
             return res.status(500).json({ message: 'Failed to insert into Dispatch table.' });
         }
 
-        // STEP 3: Insert into Main DB (Order Table)
-        const currentTimestamp = new Date().toISOString();
-        const mainDbOrderData = {
-            order_id: order_id,
-            user_id: customerUserId,
-            member_id: resolvedMemberId,
-            address_id: resolvedAddressId,
-            service_category: category,
-            service_subcategory: category || 'General Service',
-            work_description: order_request,
-            order_status: 'Assigned',
-            scheduled_date: currentTimestamp,
-            preferred_time: '9:00 AM - 1:00 PM',
-            created_at: currentTimestamp,
-            updated_at: currentTimestamp,
-        };
+        // STEP 3: Insert into Main DB (Order Table) - Only if we have a customerUserId
+        if (customerUserId) {
+            const currentTimestamp = new Date().toISOString();
+            const mainDbOrderData = {
+                order_id: order_id,
+                user_id: customerUserId,
+                member_id: resolvedMemberId,
+                address_id: resolvedAddressId,
+                service_category: category,
+                service_subcategory: category || 'General Service',
+                work_description: order_request,
+                order_status: 'Assigned',
+                scheduled_date: currentTimestamp,
+                preferred_time: '9:00 AM - 1:00 PM',
+                created_at: currentTimestamp,
+                updated_at: currentTimestamp,
+            };
 
-        const { error: orderError } = await supabase
-            .from('Order')
-            .insert([mainDbOrderData]);
+            const { error: orderError } = await supabase
+                .from('Order')
+                .insert([mainDbOrderData]);
 
-        if (orderError) {
-            console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
-            console.groupEnd();
-            return res.status(500).json({ message: 'Serviceman dispatched, but Order record failed.', details: orderError.message });
+            if (orderError) {
+                console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
+                // Non-fatal error log: Serviceman is dispatched, but Order table record failed.
+                console.warn("⚠️ Serviceman was dispatched, but Order record failed. Check logs.");
+            }
+        } else {
+             console.warn("⚠️ Skipping Order table insert: customerUserId could not be resolved.");
         }
+
 
         console.log(`✅ [SUCCESS] Dispatch Complete for Customer: ${resolvedCustomerName}.`);
         console.groupEnd();
         res.status(201).json({
-            message: 'Serviceman dispatched and Order created successfully.',
+            message: 'Serviceman dispatched and Order process complete.',
             dispatch_id: empData[0]?.id,
             order_id: order_id
         });
@@ -669,7 +675,7 @@ exports.dispatchServiceman = async (req, res) => {
 };
 
 // ======================================================================
-// 🚀 NEW: ORDER MANAGEMENT (Assigned Orders & Cancellation) (Removed non-essential logging)
+// 🚀 NEW: ORDER MANAGEMENT (Assigned Orders & Cancellation)
 // ======================================================================
 
 /**
