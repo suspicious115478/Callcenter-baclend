@@ -149,7 +149,7 @@ const checkDispatchPresence = async (phoneNumber) => {
     try {
         // Fetch the most recent dispatch record for this number
         const { data, error } = await empSupabase
-            .from('dispatch')
+            .from('users')
             .select('*')
             .eq('phone_number', dbPhoneNumber)
             .order('dispatched_at', { ascending: false }) // Get the latest one
@@ -827,3 +827,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
