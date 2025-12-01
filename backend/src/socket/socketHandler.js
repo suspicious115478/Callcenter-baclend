@@ -42,10 +42,11 @@ exports.setupSocket = (server) => {
       
       console.log(`[TEST EMIT] Sending call: ${testNumber} with Status: ${callData.subscriptionStatus}`);
       
-    }, 10000); // Emits a call every 10 seconds
+    }, 30000); // Emits a call every 10 seconds
   });
 };
 
 exports.io = () => ioInstance;
+
 
 
