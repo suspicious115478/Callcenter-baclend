@@ -180,7 +180,7 @@ const checkIfCallerIsEmployee = async (phoneNumber) => {
                 isEmployee: true,
                 userName: `${employee.name} (Employee)`,
                 subscriptionStatus: "Internal Staff",
-                dashboardLink: `/employee-help-desk`, // Redirects here
+                dashboardLink: "/employeehelpdesk", // Redirects here
                 ticket: `Internal Call - ${employee.role || 'Staff'}`,
                 employeeData: employee
             };
@@ -904,6 +904,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
