@@ -95,13 +95,10 @@ const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
                     console.log(`✅ [NAME LOOKUP] Found name in Member table: ${customerName}`);
                     return customerName;
                 } else {
-                    // **CRITICAL LOGGING ADDED HERE**
                     console.warn(`⚠️ [NAME LOOKUP] Member record found for ID ${resolvedMemberId}, but name column is NULL/EMPTY. Falling back to User table.`);
-                    // **DO NOT RETURN HERE. Proceed to Case #2.**
                 }
             } else {
                 console.warn(`⚠️ [NAME LOOKUP] No Member record found for ID: ${resolvedMemberId}. Falling back to User table.`);
-                // Proceed to Case #2
             }
         }
 
@@ -138,8 +135,52 @@ const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
 // ----------------------------------------------------------------------
 
 /**
- * 🚀 NEW: Check if the number exists in the Dispatch table.
- * If found, this indicates an active Employee interaction context.
+ * 🚀 PRIORITY 1: Check if the caller is an internal EMPLOYEE.
+ * Checks 'users' table in Employee DB using 'mobile_number'.
+ */
+const checkIfCallerIsEmployee = async (phoneNumber) => {
+    if (!empSupabase) return null;
+
+    const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+
+    try {
+        // Checking the 'users' table in Employee Database
+        const { data, error } = await empSupabase
+            .from('users') 
+            .select('*')
+            .eq('mobile_number', dbPhoneNumber) // Using mobile_number as requested
+            .limit(1);
+
+        if (error) {
+            console.error("[EMPLOYEE CHECK ERROR]", error.message);
+            return null;
+        }
+
+        if (data && data.length > 0) {
+            const employee = data[0];
+            console.log(`👨‍🔧 [EMPLOYEE CALL DETECTED] Name: ${employee.name}, Role: ${employee.role || 'Staff'}`);
+            
+            return {
+                isEmployee: true,
+                userName: `${employee.name} (Employee)`,
+                subscriptionStatus: "Internal Staff",
+                // You can route this to the Help Desk or a specific Staff Page
+                dashboardLink: `/employee-help-desk`, 
+                ticket: `Internal Call - ${employee.role || 'Staff'}`,
+                employeeData: employee
+            };
+        }
+
+        return null; // Not an employee
+
+    } catch (e) {
+        console.error("[EMPLOYEE CHECK EXCEPTION]", e.message);
+        return null;
+    }
+};
+
+/**
+ * 🚀 PRIORITY 2: Check if the number exists in the Dispatch table (Active Customer Job).
  */
 const checkDispatchPresence = async (phoneNumber) => {
     if (!empSupabase) return null;
@@ -147,9 +188,9 @@ const checkDispatchPresence = async (phoneNumber) => {
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
 
     try {
-        // Fetch the most recent dispatch record for this number
+        // Fetch the most recent dispatch record for this number from 'dispatch' table
         const { data, error } = await empSupabase
-            .from('users')
+            .from('dispatch')
             .select('*')
             .eq('phone_number', dbPhoneNumber)
             .order('dispatched_at', { ascending: false }) // Get the latest one
@@ -162,13 +203,12 @@ const checkDispatchPresence = async (phoneNumber) => {
 
         if (data && data.length > 0) {
             const record = data[0];
-            console.log(`✅ [DISPATCH FOUND] Number ${dbPhoneNumber} is in Dispatch table. ID: ${record.id}`);
+            console.log(`✅ [DISPATCH FOUND] Number ${dbPhoneNumber} is in Dispatch table. Order ID: ${record.order_id}`);
             
             return {
                 foundInDispatch: true,
                 dispatchData: record,
                 userName: record.customer_name || "Dispatch Customer",
-                // This link routes to your new Employee Help Desk Page
                 dashboardLink: `/employee-help-desk`, 
                 ticket: `Existing Dispatch: ${record.order_id}`
             };
@@ -183,7 +223,7 @@ const checkDispatchPresence = async (phoneNumber) => {
 };
 
 /**
- * Checks the subscription status of a phone number (Standard Logic).
+ * 🚀 PRIORITY 3: Standard Subscription Status Check (Regular Customer).
  */
 exports.checkSubscriptionStatus = async (phoneNumber) => {
     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
@@ -295,7 +335,10 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
 
 /**
  * Main handler for the incoming call webhook.
- * UPDATED LOGIC: Checks Dispatch Table -> then Checks Subscription.
+ * LOGIC FLOW: 
+ * 1. Check if Employee (users table)
+ * 2. Check if Dispatch Customer (dispatch table)
+ * 3. Check if Regular Subscriber (AllowedNumber table)
  */
 exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     const currentAgentStatus = agentController.getRawStatus(); 
@@ -309,45 +352,62 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     }
 
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
-    
     console.log(`📞 [INCOMING CALL] Processing number: ${incomingNumber}`);
 
     let callData = {};
 
-    // 🚀 STEP A: Check if this number is in the Dispatch Table (Employee Context)
-    const dispatchResult = await checkDispatchPresence(incomingNumber);
+    // 🚀 STEP 1: Check if Caller is an EMPLOYEE (Table: users)
+    const employeeResult = await checkIfCallerIsEmployee(incomingNumber);
 
-    if (dispatchResult && dispatchResult.foundInDispatch) {
-        console.log("⚡ [ROUTING] Call matched in Dispatch Table. Routing to Employee Help Desk.");
+    if (employeeResult && employeeResult.isEmployee) {
+        console.log("⚡ [ROUTING] Caller is an INTERNAL EMPLOYEE.");
         
-        // Construct data for Employee Help Desk
         callData = {
             caller: incomingNumber,
-            name: dispatchResult.userName,
-            subscriptionStatus: "Dispatch Active",
-            dashboardLink: dispatchResult.dashboardLink, // /employee-help-desk
-            ticket: dispatchResult.ticket,
+            name: employeeResult.userName,
+            subscriptionStatus: "Internal Staff",
+            dashboardLink: employeeResult.dashboardLink, // /employee-help-desk
+            ticket: employeeResult.ticket,
             isExistingUser: true,
-            isEmployeeCall: true, // Flag for Frontend
-            dispatchData: dispatchResult.dispatchData // Pass full dispatch record
+            isEmployeeCall: true,
+            dispatchData: null // Or pass employee specific data here if needed
         };
 
     } else {
-        // 🚀 STEP B: Not in Dispatch, proceed with standard User Check
-        console.log("ℹ️ [ROUTING] No Dispatch record found. Checking User Subscription.");
-        const userData = await exports.checkSubscriptionStatus(incomingNumber);
-        
-        callData = {
-            caller: incomingNumber,
-            name: userData.userName,
-            subscriptionStatus: userData.subscriptionStatus,
-            dashboardLink: userData.dashboardLink, // /user/dashboard or /new-call/search
-            ticket: userData.ticket,
-            isExistingUser: userData.hasActiveSubscription,
-            isEmployeeCall: false
-        };
+        // 🚀 STEP 2: If NOT Employee, Check Dispatch Table (Table: dispatch)
+        const dispatchResult = await checkDispatchPresence(incomingNumber);
+
+        if (dispatchResult && dispatchResult.foundInDispatch) {
+            console.log("⚡ [ROUTING] Call matched in DISPATCH Table. Routing to Help Desk.");
+            
+            callData = {
+                caller: incomingNumber,
+                name: dispatchResult.userName,
+                subscriptionStatus: "Dispatch Active",
+                dashboardLink: dispatchResult.dashboardLink, // /employee-help-desk
+                ticket: dispatchResult.ticket,
+                isExistingUser: true,
+                isEmployeeCall: false,
+                dispatchData: dispatchResult.dispatchData
+            };
+        } else {
+            // 🚀 STEP 3: If NOT Dispatch, proceed with Standard User Subscription Check
+            console.log("ℹ️ [ROUTING] No Dispatch/Employee record. Checking User Subscription.");
+            const userData = await exports.checkSubscriptionStatus(incomingNumber);
+            
+            callData = {
+                caller: incomingNumber,
+                name: userData.userName,
+                subscriptionStatus: userData.subscriptionStatus,
+                dashboardLink: userData.dashboardLink, // /user/dashboard or /new-call/search
+                ticket: userData.ticket,
+                isExistingUser: userData.hasActiveSubscription,
+                isEmployeeCall: false
+            };
+        }
     }
     
+    // Emit to Frontend
     const ioInstance = ioInstanceGetter();
     if (ioInstance) {
         console.log(`[SOCKET EMIT] Sending incoming-call to Frontend...`);
@@ -827,4 +887,3 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
-
