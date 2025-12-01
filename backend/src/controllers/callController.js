@@ -274,12 +274,13 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     let employeeData = null;
 
     if (empSupabase) {
+        const e164PhoneNumber = `+${dbPhoneNumber}`;
         console.log(`🔎 [EMPLOYEE CHECK] Looking up: ${dbPhoneNumber} in 'users' table...`);
         try {
             const { data, error } = await empSupabase
                 .from('users') // Table name: users
                 .select('mobile_number, name')
-                .eq('mobile_number', dbPhoneNumber) // Column name: mobile_number
+                .eq('mobile_number', e164PhoneNumber) // Column name: mobile_number
                 .limit(1);
 
             if (error) {
@@ -808,3 +809,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
