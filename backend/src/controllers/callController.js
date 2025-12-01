@@ -4,7 +4,6 @@ const agentController = require('./agentController'); 
 // Define the two possible redirect paths for the frontend
 const CUSTOMER_REDIRECT_PATH = '/new-customer-call'; 
 const EMPLOYEE_REDIRECT_PATH = '/employee-helpdesk'; 
-
 // ======================================================================
 // 1. MAIN SUPABASE (User/Subscription Lookup & ORDER Table)
 // ======================================================================
@@ -782,3 +781,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
