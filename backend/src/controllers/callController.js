@@ -61,6 +61,49 @@ const handleInactive = (dbPhoneNumber, name) => ({
 });
 
 /**
+ * Checks if the phone number belongs to an employee in the EMP_SUPABASE.
+ * @param {string} phoneNumber - The incoming phone number (normalized).
+ * @returns {Promise<{isEmployee: boolean, employeeName: string | null}>}
+ */
+const checkIsEmployee = async (phoneNumber) => {
+    if (!empSupabase) {
+        console.warn("⚠️ [EMPLOYEE CHECK] Employee DB not configured. Skipping check.");
+        return { isEmployee: false, employeeName: null };
+    }
+    
+    // The phone number is already normalized (stripped of non-digits) by getIncomingCall
+    const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+
+    try {
+        console.log(`🔎 [EMPLOYEE CHECK] Searching for employee with mobile_number: ${dbPhoneNumber}`);
+        const { data: employeeData, error: employeeError } = await empSupabase
+            .from('users') // Assuming 'users' is the employee table name
+            .select('name') // Select the name column
+            .eq('mobile_number', dbPhoneNumber) // Check against the mobile_number column
+            .limit(1);
+
+        if (employeeError) {
+            console.error("❌ [EMPLOYEE CHECK FAILED] DB Error: ${employeeError.message}`);
+            return { isEmployee: false, employeeName: null };
+        }
+
+        if (employeeData && employeeData.length > 0) {
+            const employeeName = employeeData[0].name || 'Employee';
+            console.log(`✅ [EMPLOYEE CHECK SUCCESS] Call from Employee: ${employeeName}. Redirecting to Help Desk.`);
+            return { isEmployee: true, employeeName: employeeName };
+        }
+
+        console.log(`❌ [EMPLOYEE CHECK FAILED] Number ${dbPhoneNumber} not found in employee database.`);
+        return { isEmployee: false, employeeName: null };
+
+    } catch (e) {
+        console.error("🛑 [EMPLOYEE CHECK EXCEPTION]", e.message);
+        return { isEmployee: false, employeeName: null };
+    }
+};
+
+
+/**
  * Fetches the customer name based on member_id or falls back to user_id.
  * @param {string} customerUserId - The user_id associated with the customer.
  * @param {string | null} resolvedMemberId - The member_id, which may be null.
@@ -263,17 +306,38 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
     }
 
     const incomingNumber = req.body.From || req.query.From || req.body.caller || "+911234567890"; 
-    
-    const userData = await exports.checkSubscriptionStatus(incomingNumber);
-    
-    const callData = {
-        caller: incomingNumber,
-        name: userData.userName,
-        subscriptionStatus: userData.subscriptionStatus,
-        dashboardLink: userData.dashboardLink,
-        ticket: userData.ticket,
-        isExistingUser: userData.hasActiveSubscription
-    };
+    const dbPhoneNumber = incomingNumber.replace(/[^0-9]/g, '');
+
+    // 🚀 NEW STEP 1: Check if the incoming number is an employee
+    const employeeCheck = await checkIsEmployee(dbPhoneNumber);
+
+    let callData = {};
+
+    if (employeeCheck.isEmployee) {
+        // Employee Call Flow: Redirect to EmployeeHelpDesk
+        console.log("➡️ [CALL FLOW] Employee Call Flow Activated. Routing to Help Desk.");
+        callData = {
+            caller: incomingNumber,
+            name: employeeCheck.employeeName,
+            subscriptionStatus: "Employee Call",
+            // Set dashboardLink to the new EmployeeHelpDesk route
+            dashboardLink: `/employee/help-desk/${dbPhoneNumber}`, 
+            ticket: "Employee Help Desk"
+        };
+    } else {
+        // Regular Customer Call Flow (Original Logic)
+        console.log("➡️ [CALL FLOW] Regular Customer Flow Activated. Checking subscription status.");
+        const userData = await exports.checkSubscriptionStatus(incomingNumber);
+        
+        callData = {
+            caller: incomingNumber,
+            name: userData.userName,
+            subscriptionStatus: userData.subscriptionStatus,
+            dashboardLink: userData.dashboardLink,
+            ticket: userData.ticket,
+            isExistingUser: userData.hasActiveSubscription
+        };
+    }
     
     const ioInstance = ioInstanceGetter();
     if (ioInstance) {
@@ -483,7 +547,7 @@ exports.dispatchServiceman = async (req, res) => {
         console.groupEnd();
         return res.status(400).json({ message: 'Missing essential dispatch data.' });
     }
-    
+    
     // ⚠️ Add check for admin_id if it's a mandatory field
     if (!admin_id) {
         console.error("⚠️ [ERROR] Missing admin_id for dispatch record.");
@@ -758,5 +822,3 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
-
-
