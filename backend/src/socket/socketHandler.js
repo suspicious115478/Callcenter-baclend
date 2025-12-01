@@ -2,14 +2,13 @@
 
 const { Server } = require("socket.io");
 const callController = require("../controllers/callController");
-// 🚨 NEW IMPORT: Import agentController to check status in the test loop
 const agentController = require("../controllers/agentController"); 
 
 let ioInstance;
 
 exports.setupSocket = (server) => {
   const io = new Server(server, {
-    cors: { origin: "https://callcenter-frontend-o9od.onrender.com" } 
+    cors: { origin: "*" } // Allow all origins for testing, change back to your URL later
   });
 
   ioInstance = io;
@@ -24,32 +23,52 @@ exports.setupSocket = (server) => {
       
       if (status === 'offline') {
         console.log("[TEST LOOP] Agent is offline. Skipping test call.");
-        return; // <--- STOP HERE if offline
+        return; 
       }
 
-      // 2. Proceed only if Online
-      const testNumber = "+91987657777"; // Using 10-digit format to match DB
+      // ---------------------------------------------------------
+      // TEST SCENARIOS (Change this number to test different cases)
+      // ---------------------------------------------------------
+      const testNumber = "+91987657777"; 
       
-      const callData = await callController.checkSubscriptionStatus(testNumber);
+      console.log(`\n--- [TEST LOOP START] Testing Number: ${testNumber} ---`);
+
+      // 2. ⚠️ CRITICAL CHANGE: Manually run the full logic check here
+      // We cannot call 'getIncomingCall' directly because it expects req/res objects.
+      // So we will simulate the logic steps here exactly as they are in the controller.
       
-      socket.emit("incoming-call", {
-        caller: testNumber,
-        name: callData.userName, 
-        subscriptionStatus: callData.subscriptionStatus, 
-        dashboardLink: callData.dashboardLink, 
-        ticket: callData.ticket
-      });
+      let callData = {};
+
+      // A. Check Employee (Priority 1)
+      // Note: We need to access the un-exported helper function logic. 
+      // Since we can't easily import private functions, we will rely on a new exported helper
+      // OR (Simpler for now) we just assume the controller exposes a "test" function.
       
-      console.log(`[TEST EMIT] Sending call: ${testNumber} with Status: ${callData.subscriptionStatus}`);
+      // *** BETTER APPROACH FOR TESTING ***
+      // Instead of duplicating logic, let's fake a request to the actual controller function
+      // by mocking the req/res objects.
       
-    }, 30000); // Emits a call every 10 seconds
+      const mockReq = { 
+        body: { caller: testNumber }, 
+        query: {} 
+      };
+      
+      const mockRes = {
+        status: (code) => ({
+          json: (data) => {
+            console.log(`[TEST LOOP] Controller Responded: ${data.status}`);
+          }
+        })
+      };
+
+      // Call the main controller function. 
+      // It will run the logic AND emit the socket event automatically because we passed the io getter.
+      await callController.getIncomingCall(() => io)(mockReq, mockRes);
+
+      console.log(`--- [TEST LOOP END] ---\n`);
+      
+    }, 10000); // Emits a test call every 10 seconds
   });
 };
 
 exports.io = () => ioInstance;
-
-
-
-
-
-
