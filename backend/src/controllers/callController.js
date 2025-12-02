@@ -354,7 +354,7 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
         // Database Query
         const { data, error } = await empSupabase
             .from('users')
-            .select('user_id') 
+            .select('uid') 
             .eq('mobile_number', dbPhoneNumber)
             .limit(1);
 
@@ -1072,6 +1072,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
