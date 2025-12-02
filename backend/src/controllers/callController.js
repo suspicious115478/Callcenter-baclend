@@ -295,7 +295,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
                 hasActiveSubscription: true,
                 userName: user.name || "Active Subscriber",
                 subscriptionStatus: "Verified",
-                dashboardLink: `/user/dashboard/${userId}`,
+                dashboardLink: `/user/dashboard/${userId}?phoneNumber=${dbPhoneNumber}`,
                 ticket: "Active Plan Call"
             };
         }
@@ -1067,6 +1067,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
