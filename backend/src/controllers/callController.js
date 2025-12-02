@@ -1071,6 +1071,114 @@ exports.getAssignedOrders = async (req, res) => {
     }
 };
 
+// ======================================================================
+// Reassign Serviceman (Used after a cancellation/reassignment flow)
+// ======================================================================
+
+exports.reassignServiceman = async (req, res) => {
+    console.group("🔄 [REASSIGN SERVINCEMAN PROCESS]");
+
+    if (!empSupabase) {
+        console.error("❌ [ERROR] Employee DB not configured.");
+        console.groupEnd();
+        return res.status(500).json({ message: 'Employee database unavailable.' });
+    }
+
+    const dispatchData = req.body;
+    let { 
+        order_id, category, user_id, // user_id is the NEW serviceman's ID
+        member_id, phone_number, request_address, 
+        order_request, // This will be the order's request details
+        address_id,
+        ticket_id,
+        admin_id,
+        customerUserId // ⬅️ NEW: The user_id of the customer (not serviceman)
+    } = dispatchData; 
+
+    if (!order_id || !user_id || !category || !ticket_id || !customerUserId) {
+        console.error(`⚠️ [ERROR] Missing essential reassign data.`);
+        console.groupEnd();
+        return res.status(400).json({ message: 'Missing essential reassign data (order_id, serviceman user_id, customerUserId, category, ticket_id).' });
+    }
+
+    if (!admin_id) {
+        console.warn("⚠️ [WARNING] Missing admin_id for dispatch record. Using fallback.");
+        admin_id = 'UNKNOWN_ADMIN'; 
+    }
+
+    // Since this is a reassign, we already know customerUserId, memberId, and addressId 
+    // from the data passed from the client, so we skip the lookup steps.
+
+    try {
+        // 🌟 STEP 1: Insert NEW record into Employee DB (Dispatch Table)
+        const employeeDbData = {
+            order_id, 
+            user_id, // Serviceman's user_id
+            category,
+            request_address,
+            order_status: 'Assigned', // Always set to Assigned on dispatch
+            order_request,
+            phone_number,
+            ticket_id,
+            dispatched_at: new Date().toISOString(),
+            // resolvedCustomerName will be looked up by fetchCustomerName in the existing dispatchServiceman flow,
+            // but for simplicity in reassigning, we assume the Serviceman app looks up the customer name via order_id.
+            // If needed, you'd pass resolvedCustomerName from client or re-resolve it here.
+            customer_name: 'Reassigned Customer', 
+            admin_id: admin_id 
+        };
+
+        const { data: empData, error: empError } = await empSupabase
+            .from('dispatch') 
+            .insert([employeeDbData])
+            .select('*');
+
+        if (empError) {
+            console.error("❌ [EMPLOYEE DB ERROR - Reassign]", empError.message);
+            console.groupEnd();
+            return res.status(500).json({ message: 'Failed to insert NEW Dispatch record during reassign.' });
+        }
+
+        // 🌟 STEP 2: Update Main DB (Order Table)
+        // We only update the existing order_id
+        const currentTimestamp = new Date().toISOString();
+        const mainDbOrderUpdate = {
+            order_status: 'Assigned',
+            // Update the Serviceman ID on the Order table (if your Order table stores the SM's ID)
+            // Assuming your Order table has a 'serviceman_user_id' column:
+            // serviceman_user_id: user_id, 
+            updated_at: currentTimestamp, 
+        };
+
+        const { error: orderError } = await supabase
+            .from('Order') 
+            .update(mainDbOrderUpdate)
+            .eq('order_id', order_id);
+
+        if (orderError) {
+            console.error("❌ [MAIN DB ORDER ERROR - Reassign]", orderError.message);
+            console.groupEnd();
+            // Note: Dispatch record was created, but Order update failed.
+            return res.status(500).json({ message: 'Serviceman dispatched, but Order update failed.', details: orderError.message });
+        }
+        
+        // 🌟 STEP 3: Notify other systems (e.g., Socket for new Serviceman) - Implement socket logic here
+
+        console.log(`✅ [SUCCESS] Reassignment Complete for Order ID: ${order_id} to SM: ${user_id}.`);
+        console.groupEnd();
+        res.status(201).json({
+            message: 'Serviceman reassigned and Order updated successfully.',
+            dispatch_id: empData[0]?.id,
+            order_id: order_id
+        });
+
+    } catch (e) {
+        console.error("🛑 [EXCEPTION - Reassign]", e.message);
+        console.groupEnd();
+        res.status(500).json({ message: 'Internal server error during reassign.' });
+    }
+};
+
 /**
  * 🚀 PUT: Cancel an Order (Change status to 'Cust_Cancelled')
  * Updates both Main DB (Order) and Employee DB (Dispatch)
@@ -1133,6 +1241,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
