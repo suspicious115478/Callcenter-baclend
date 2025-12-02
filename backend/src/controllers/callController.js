@@ -301,73 +301,98 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         return handleInactive(dbPhoneNumber, "System Error");
     }
 };
-// ----------------------------------------------------------------------
+// Assuming this is in a file like 'callController.js' and 'empSupabase' is imported/defined elsewhere.
+
 // ⚡ NEW EMPLOYEE API ENDPOINTS FOR FRONTEND (EmployeeHelpDeskPage.jsx)
 // ----------------------------------------------------------------------
 
 /**
- * Endpoint 1: Fetches Employee Details (specifically user_id) using mobile number.
- * This resolves the phone number to the unique employee ID.
- * URL: /api/employee/details?mobile_number=...
- */
+ * Endpoint 1: Fetches Employee Details (specifically user_id) using mobile number.
+ * This resolves the phone number to the unique employee ID.
+ * URL: /call/employee/details?mobile_number=... (Fixed to /call prefix on frontend)
+ */
 exports.getEmployeeDetailsByMobile = async (req, res) => {
-    console.group("📞 API: EMPLOYEE DETAILS LOOKUP START");
-    const { mobile_number } = req.query;
+    // NOTE: The console.group might also fail if logging is slow. We prioritize the try...catch.
+    // We will put a simple log here to test for flush.
+    console.log("📞 API: EMPLOYEE DETAILS LOOKUP ATTEMPT (Pre-catch)");
+    
+    try {
+        // Start Grouping after the critical log line
+        console.group("📞 API: EMPLOYEE DETAILS LOOKUP START");
 
-    if (!empSupabase) {
-        console.error("❌ [API: EMP DETAILS] Employee DB is not configured (empSupabase is null).");
-        console.groupEnd();
-        return res.status(503).json({ message: 'Employee DB not configured.' });
-    }
-
-    if (!mobile_number) {
-        console.error("❌ [API: EMP DETAILS] Missing 'mobile_number' in query parameters.");
-        console.groupEnd();
-        return res.status(400).json({ message: 'Missing mobile_number query parameter.' });
-    }
-
-    const dbPhoneNumber = mobile_number.replace(/[^0-9+]/g, '');
-    console.log(`🔎 [API: EMP DETAILS] Raw Input: "${mobile_number}". Database Key: "${dbPhoneNumber}"`);
-
-    try {
-        console.log(`📡 [API: EMP DETAILS] Querying 'users' table for mobile_number = '${dbPhoneNumber}'...`);
-        // Ensure you select 'name' and 'mobile_number' here if you return them later
-        const { data, error } = await empSupabase
-            .from('users')
-            .select('id, user_id, name, mobile_number, role') 
-            .eq('mobile_number', dbPhoneNumber)
-            .limit(1);
-
-        if (error) {
-            console.error("❌ [API: EMP DETAILS] DB Query Error:", JSON.stringify(error, null, 2));
+        // This check is critical: If empSupabase is not defined (ReferenceError), 
+        // the process crashes *before* entering the catch block below.
+        // If it is defined but null/falsy, this check will run.
+        if (typeof empSupabase === 'undefined') {
+            const refError = new Error("empSupabase is not defined.");
+            console.error("❌ [API: EMP DETAILS] Supabase client is not defined (ReferenceError).");
             console.groupEnd();
-            return res.status(500).json({ message: 'Database query error.', details: error.message });
+            // Throwing here will be caught by the outer catch block below
+            throw refError; 
         }
 
-        if (!data || data.length === 0) {
-            console.warn(`⚠️ [API: EMP DETAILS] Employee not found. Result count: ${data ? data.length : 0}.`);
-            console.groupEnd();
-            return res.status(404).json({ message: 'Employee not found for this number.' });
-        }
-        
-        const employee = data[0];
-        console.log(`✅ [API: EMP DETAILS] Match Found! User ID: ${employee.user_id}, Name: ${employee.name}`);
-        
-        // Return the core details needed by the frontend
-        res.status(200).json({
-            success: true,
-            user_id: employee.user_id, // This is the Serviceman ID
-            employee_name: employee.name,
-            mobile_number: employee.mobile_number,
-            // Note: I included 'name' and 'mobile_number' in the select above for safety
+        if (!empSupabase) {
+            console.error("❌ [API: EMP DETAILS] Employee DB is not configured (empSupabase is null).");
+            console.groupEnd();
+            return res.status(503).json({ message: 'Employee DB not configured.' });
+        }
+
+        const { mobile_number } = req.query;
+
+        if (!mobile_number) {
+            console.error("❌ [API: EMP DETAILS] Missing 'mobile_number' in query parameters.");
+            console.groupEnd();
+            return res.status(400).json({ message: 'Missing mobile_number query parameter.' });
+        }
+
+        const dbPhoneNumber = mobile_number.replace(/[^0-9+]/g, '');
+        console.log(`🔎 [API: EMP DETAILS] Raw Input: "${mobile_number}". Database Key: "${dbPhoneNumber}"`);
+
+        // The original try/catch block is no longer needed as the function is wrapped
+        console.log(`📡 [API: EMP DETAILS] Querying 'users' table for mobile_number = '${dbPhoneNumber}'...`);
+        
+        // Database Query
+        const { data, error } = await empSupabase
+            .from('users')
+            .select('id, user_id, name, mobile_number, role') 
+            .eq('mobile_number', dbPhoneNumber)
+            .limit(1);
+
+        if (error) {
+            console.error("❌ [API: EMP DETAILS] DB Query Error:", JSON.stringify(error, null, 2));
+            console.groupEnd();
+            return res.status(500).json({ message: 'Database query error.', details: error.message });
+        }
+
+        if (!data || data.length === 0) {
+            console.warn(`⚠️ [API: EMP DETAILS] Employee not found. Result count: ${data ? data.length : 0}.`);
+            console.groupEnd();
+            return res.status(404).json({ message: 'Employee not found for this number.' });
+        }
+        
+        const employee = data[0];
+        console.log(`✅ [API: EMP DETAILS] Match Found! User ID: ${employee.user_id}, Name: ${employee.name}`);
+        
+        // Return the core details needed by the frontend
+        res.status(200).json({
+            success: true,
+            user_id: employee.user_id, // This is the Serviceman ID
+            employee_name: employee.name,
+            mobile_number: employee.mobile_number,
+        });
+        console.groupEnd();
+
+    } catch (e) {
+        // 🛑 This catch block is designed to capture the synchronous ReferenceError 
+        // if 'empSupabase' is not defined/imported correctly.
+        console.error("🛑 [API: EMP DETAILS EXCEPTION] Unhandled Exception:", e.message, e.stack);
+        // Attempt to close the group, though it might fail if it was never opened
+        try { console.groupEnd(); } catch(err) {} 
+        res.status(500).json({ 
+            message: 'Internal server error.',
+            details: e.message // Include the message to help debug in development
         });
-        console.groupEnd();
-
-    } catch (e) {
-        console.error("🛑 [API: EMP DETAILS EXCEPTION] Unhandled Exception:", e.message, e.stack);
-        console.groupEnd();
-        res.status(500).json({ message: 'Internal server error.' });
-    }
+    }
 };
 
 // ----------------------------------------------------------------------
@@ -1047,6 +1072,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
