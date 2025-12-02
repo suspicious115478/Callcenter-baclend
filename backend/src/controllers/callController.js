@@ -307,7 +307,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 // ----------------------------------------------------------------------
 
 /**
- * Endpoint 1: Fetches Employee Details (specifically user_id) using mobile number.
+ * Endpoint 1: Fetches Employee Details (specifically the UID, which maps to user_id in dispatch).
  * This resolves the phone number to the unique employee ID.
  * URL: /call/employee/details?mobile_number=...
  */
@@ -317,7 +317,7 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
     try {
         console.group("📞 API: EMPLOYEE DETAILS LOOKUP START");
 
-        // Setup check (left as is)
+        // Setup checks... (Kept for safety)
         if (typeof empSupabase === 'undefined' || !empSupabase) {
             console.error("❌ [API: EMP DETAILS] Supabase client is not defined/configured.");
             console.groupEnd();
@@ -332,28 +332,21 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
             return res.status(400).json({ message: 'Missing mobile_number query parameter.' });
         }
 
-        // ----------------------------------------------------------------------
-        // 🚀 FINAL FIX FOR MOBILE NUMBER FORMATTING
-        // 1. Normalize the raw input to remove all non-digit/non-plus characters.
-        // 2. Explicitly ensure the resulting string starts with '+'.
-        let dbPhoneNumber = String(mobile_number)
-            .trim()
-            .replace(/[^\d+]/g, ''); // Remove spaces, dashes, etc.
-
-        // If the database requires the '+' (which your logs confirm), ensure it's prepended.
-        if (!dbPhoneNumber.startsWith('+')) {
-            dbPhoneNumber = '+' + dbPhoneNumber;
-        }
+        // Mobile Number Formatting (Kept fixed)
+        let dbPhoneNumber = String(mobile_number).trim().replace(/[^\d+]/g, ''); 
+        if (!dbPhoneNumber.startsWith('+')) {
+            dbPhoneNumber = '+' + dbPhoneNumber;
+        }
 
         console.log(`🔎 [API: EMP DETAILS] Raw Input: "${mobile_number}". Database Key: "${dbPhoneNumber}"`);
 
         console.log(`📡 [API: EMP DETAILS] Querying 'users' table for mobile_number = '${dbPhoneNumber}'...`);
         
-        // Database Query: Uses the corrected 'uid' column and selects all required data
+        // 🚀 FIX 1: Select only the existing columns: 'uid' and 'mobile_number'
         const { data, error } = await empSupabase
             .from('users')
-            .select('uid') // NOTE: user_id, name, mobile_number are required for the response
-            .eq('mobile_number', dbPhoneNumber) // <-- Now correctly uses the '+'-prefixed key
+            .select('uid, mobile_number') // <-- ONLY SELECT COLUMNS THAT EXIST
+            .eq('mobile_number', dbPhoneNumber)
             .limit(1);
 
         if (error) {
@@ -369,13 +362,14 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
         }
         
         const employee = data[0];
-        console.log(`✅ [API: EMP DETAILS] Match Found! User ID: ${employee.user_id}, Name: ${employee.name}`);
+        // 🚀 FIX 2: Correct log and response to use the 'uid' value
+        console.log(`✅ [API: EMP DETAILS] Match Found! UID (Used as User ID): ${employee.uid}`);
         
-        // Return the core details needed by the frontend
+        // Return the UID mapped to the expected user_id for the next endpoint call.
         res.status(200).json({
             success: true,
-            user_id: employee.user_id,
-            employee_name: employee.name,
+            user_id: employee.uid, // <-- MAPPING: uid from 'users' becomes user_id for frontend/dispatch
+            employee_name: null,    // <-- Set to null since 'name' is not fetched
             mobile_number: employee.mobile_number,
         });
         console.groupEnd();
@@ -398,13 +392,13 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
  * URL: /api/dispatch/active-order?user_id=...
  */
 exports.getActiveDispatchByUserId = async (req, res) => {
-    console.log("📞 API: ACTIVE DISPATCH LOOKUP ATTEMPT (Pre-catch)");
+    console.log("📞 API: ACTIVE DISPATCH LOOKUP ATTEMPT (Pre-catch)");
     
     try {
-        console.group("📞 API: ACTIVE DISPATCH LOOKUP START");
-        const { user_id } = req.query;
+        console.group("📞 API: ACTIVE DISPATCH LOOKUP START");
+        const { user_id } = req.query; // This user_id parameter comes from the uid returned by Endpoint 1
 
-        // The outer checks are left as you provided them for setup safety
+        // Setup checks... (Kept for safety)
         if (typeof empSupabase === 'undefined' || !empSupabase) {
             console.error("❌ [API: DISPATCH DETAILS] Employee DB is not configured.");
             console.groupEnd();
@@ -417,9 +411,9 @@ exports.getActiveDispatchByUserId = async (req, res) => {
             return res.status(400).json({ message: 'Missing user_id query parameter.' });
         }
 
-        console.log(`🔎 [API: DISPATCH DETAILS] Target Employee user_id: ${user_id}`);
+        console.log(`🔎 [API: DISPATCH DETAILS] Target Employee user_id (from uid): ${user_id}`);
         
-        // 💡 FIX: Only look for orders where status IS 'Assigned'
+        // Status required for active dispatch (Assigned)
         const requiredStatus = 'Assigned';
 
         console.log(`📡 [API: DISPATCH DETAILS] Querying 'dispatch' table for user_id = '${user_id}'. Required status: '${requiredStatus}'`);
@@ -427,10 +421,11 @@ exports.getActiveDispatchByUserId = async (req, res) => {
         // Find the most recent, Assigned order
         const { data, error } = await empSupabase
             .from('dispatch')
-            .select('*')
-            .eq('user_id', uid)
-            .eq('order_status', requiredStatus) // <-- FIXED HERE: Changed .neq to .eq
-            .order('dispatched_at', { ascending: false }) // Get the latest one first
+            .select('*') // Select all columns from dispatch table
+            // 🚀 FIX: Use the 'user_id' from the URL parameter to match the 'user_id' column
+            .eq('user_id', user_id) 
+            .eq('order_status', requiredStatus) 
+            .order('dispatched_at', { ascending: false }) 
             .limit(1);
 
         if (error) {
@@ -444,7 +439,7 @@ exports.getActiveDispatchByUserId = async (req, res) => {
             console.groupEnd();
             return res.status(200).json({ 
                 message: 'No active dispatch found for this employee.',
-                dispatchData: {} // Return an empty object for safe frontend handling
+                dispatchData: {} 
             });
         }
 
@@ -1066,6 +1061,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
