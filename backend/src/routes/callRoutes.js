@@ -11,6 +11,7 @@ const {
     getMemberIdByPhoneNumber,
     getAssignedOrders, 
     cancelOrder, // (For Customer cancellations)
+    reassignServiceman,
     
     // 🚀 NEW IMPORTS: Employee Help Desk APIs
     getEmployeeDetailsByMobile, // Fetches employee UID
@@ -78,3 +79,4 @@ router.put("/dispatch/cancel", cancelActiveDispatch);
 
 
 module.exports = router;
+
