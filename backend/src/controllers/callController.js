@@ -311,38 +311,47 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
  * URL: /api/employee/details?mobile_number=...
  */
 exports.getEmployeeDetailsByMobile = async (req, res) => {
+    console.group("📞 API: EMPLOYEE DETAILS LOOKUP START");
     const { mobile_number } = req.query;
 
     if (!empSupabase) {
+        console.error("❌ [API: EMP DETAILS] Employee DB is not configured (empSupabase is null).");
+        console.groupEnd();
         return res.status(503).json({ message: 'Employee DB not configured.' });
     }
 
     if (!mobile_number) {
+        console.error("❌ [API: EMP DETAILS] Missing 'mobile_number' in query parameters.");
+        console.groupEnd();
         return res.status(400).json({ message: 'Missing mobile_number query parameter.' });
     }
 
     const dbPhoneNumber = mobile_number.replace(/[^0-9+]/g, '');
-    console.log(`🔎 [API: EMP DETAILS] Looking up employee by phone: ${dbPhoneNumber}`);
+    console.log(`🔎 [API: EMP DETAILS] Raw Input: "${mobile_number}". Database Key: "${dbPhoneNumber}"`);
 
     try {
+        console.log(`📡 [API: EMP DETAILS] Querying 'users' table for mobile_number = '${dbPhoneNumber}'...`);
+        // Ensure you select 'name' and 'mobile_number' here if you return them later
         const { data, error } = await empSupabase
             .from('users')
-            .select('user_id') // Select only essential employee info
+            .select('id, user_id, name, mobile_number, role') 
             .eq('mobile_number', dbPhoneNumber)
             .limit(1);
 
         if (error) {
-            console.error("❌ [API: EMP DETAILS] DB Error:", error.message);
+            console.error("❌ [API: EMP DETAILS] DB Query Error:", JSON.stringify(error, null, 2));
+            console.groupEnd();
             return res.status(500).json({ message: 'Database query error.', details: error.message });
         }
 
         if (!data || data.length === 0) {
-            console.warn("⚠️ [API: EMP DETAILS] Employee not found.");
+            console.warn(`⚠️ [API: EMP DETAILS] Employee not found. Result count: ${data ? data.length : 0}.`);
+            console.groupEnd();
             return res.status(404).json({ message: 'Employee not found for this number.' });
         }
         
         const employee = data[0];
-        console.log(`✅ [API: EMP DETAILS] Found employee ID: ${employee.user_id}`);
+        console.log(`✅ [API: EMP DETAILS] Match Found! User ID: ${employee.user_id}, Name: ${employee.name}`);
         
         // Return the core details needed by the frontend
         res.status(200).json({
@@ -350,13 +359,19 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
             user_id: employee.user_id, // This is the Serviceman ID
             employee_name: employee.name,
             mobile_number: employee.mobile_number,
+            // Note: I included 'name' and 'mobile_number' in the select above for safety
         });
+        console.groupEnd();
 
     } catch (e) {
-        console.error("🛑 [API: EMP DETAILS EXCEPTION]", e.message);
+        console.error("🛑 [API: EMP DETAILS EXCEPTION] Unhandled Exception:", e.message, e.stack);
+        console.groupEnd();
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
+
+// ----------------------------------------------------------------------
+// ----------------------------------------------------------------------
 
 /**
  * Endpoint 2: Fetches the active dispatch details using the employee's user_id.
@@ -364,35 +379,50 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
  * URL: /api/dispatch/active-order?user_id=...
  */
 exports.getActiveDispatchByUserId = async (req, res) => {
+    console.group("📞 API: ACTIVE DISPATCH LOOKUP START");
     const { user_id } = req.query;
 
     if (!empSupabase) {
+        console.error("❌ [API: DISPATCH DETAILS] Employee DB is not configured (empSupabase is null).");
+        console.groupEnd();
         return res.status(503).json({ message: 'Employee DB not configured.' });
     }
     
     if (!user_id) {
+        console.error("❌ [API: DISPATCH DETAILS] Missing 'user_id' in query parameters.");
+        console.groupEnd();
         return res.status(400).json({ message: 'Missing user_id query parameter.' });
     }
 
-    console.log(`🔎 [API: DISPATCH DETAILS] Looking up active dispatch for employee ID: ${user_id}`);
+    console.log(`🔎 [API: DISPATCH DETAILS] Target Employee user_id: ${user_id}`);
+    
+    // Note on Logic: The original code used neq('order_status', 'Assigned'). 
+    // This is unusual for 'active' orders. Typically, you look for status 
+    // like 'Assigned', 'On the Way', 'In Progress', etc. and exclude 'Completed' and 'Cancelled'.
+    // I will stick to your original logic for now, but log the exact query.
+    const excludedStatus = 'Assigned';
 
     try {
+        console.log(`📡 [API: DISPATCH DETAILS] Querying 'dispatch' table for user_id = '${user_id}'. Excluding status: '${excludedStatus}'`);
+
         // Find the most recent, non-completed, non-cancelled order assigned to this user_id
         const { data, error } = await empSupabase
             .from('dispatch')
             .select('*')
             .eq('user_id', user_id)
-            .neq('order_status', 'Assigned') // Filter out Assigned orders
+            .neq('order_status', excludedStatus) // Filter out 'Assigned' orders based on your previous code
             .order('dispatched_at', { ascending: false }) // Get the latest one first
             .limit(1);
 
         if (error) {
-            console.error("❌ [API: DISPATCH DETAILS] DB Error:", error.message);
+            console.error("❌ [API: DISPATCH DETAILS] DB Query Error:", JSON.stringify(error, null, 2));
+            console.groupEnd();
             return res.status(500).json({ message: 'Database query error.', details: error.message });
         }
 
         if (!data || data.length === 0) {
-            console.log("ℹ️ [API: DISPATCH DETAILS] No active dispatch found.");
+            console.log("ℹ️ [API: DISPATCH DETAILS] No matching dispatch record found (or zero rows returned).");
+            console.groupEnd();
             return res.status(200).json({ 
                 message: 'No active dispatch found for this employee.',
                 dispatchData: {} // Return an empty object for safe frontend handling
@@ -400,16 +430,18 @@ exports.getActiveDispatchByUserId = async (req, res) => {
         }
 
         const dispatchRecord = data[0];
-        console.log(`✅ [API: DISPATCH DETAILS] Found active Order ID: ${dispatchRecord.order_id}`);
+        console.log(`✅ [API: DISPATCH DETAILS] Found active Order ID: ${dispatchRecord.order_id}, Status: ${dispatchRecord.order_status}`);
         
         // Return the full dispatch record
         res.status(200).json({
             success: true,
             dispatchData: dispatchRecord
         });
+        console.groupEnd();
 
     } catch (e) {
-        console.error("🛑 [API: DISPATCH DETAILS EXCEPTION]", e.message);
+        console.error("🛑 [API: DISPATCH DETAILS EXCEPTION] Unhandled Exception:", e.message, e.stack);
+        console.groupEnd();
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
@@ -1015,6 +1047,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
