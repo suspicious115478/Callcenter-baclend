@@ -76,7 +76,8 @@ router.put("/orders/cancel", cancelOrder);
 // 🚀 12. NEW ROUTE: Cancel Active Dispatch (Employee/Agent Side)
 // Purpose: Used by EmployeeHelpDeskPage to cancel an active job ticket
 router.put("/dispatch/cancel", cancelActiveDispatch);
-
+router.post("/reassign", reassignServiceman);
 
 module.exports = router;
+
 
