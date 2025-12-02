@@ -301,7 +301,118 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         return handleInactive(dbPhoneNumber, "System Error");
     }
 };
+// ----------------------------------------------------------------------
+// ⚡ NEW EMPLOYEE API ENDPOINTS FOR FRONTEND (EmployeeHelpDeskPage.jsx)
+// ----------------------------------------------------------------------
 
+/**
+ * Endpoint 1: Fetches Employee Details (specifically user_id) using mobile number.
+ * This resolves the phone number to the unique employee ID.
+ * URL: /api/employee/details?mobile_number=...
+ */
+exports.getEmployeeDetailsByMobile = async (req, res) => {
+    const { mobile_number } = req.query;
+
+    if (!empSupabase) {
+        return res.status(503).json({ message: 'Employee DB not configured.' });
+    }
+
+    if (!mobile_number) {
+        return res.status(400).json({ message: 'Missing mobile_number query parameter.' });
+    }
+
+    const dbPhoneNumber = mobile_number.replace(/[^0-9+]/g, '');
+    console.log(`🔎 [API: EMP DETAILS] Looking up employee by phone: ${dbPhoneNumber}`);
+
+    try {
+        const { data, error } = await empSupabase
+            .from('users')
+            .select('user_id') // Select only essential employee info
+            .eq('mobile_number', dbPhoneNumber)
+            .limit(1);
+
+        if (error) {
+            console.error("❌ [API: EMP DETAILS] DB Error:", error.message);
+            return res.status(500).json({ message: 'Database query error.', details: error.message });
+        }
+
+        if (!data || data.length === 0) {
+            console.warn("⚠️ [API: EMP DETAILS] Employee not found.");
+            return res.status(404).json({ message: 'Employee not found for this number.' });
+        }
+        
+        const employee = data[0];
+        console.log(`✅ [API: EMP DETAILS] Found employee ID: ${employee.user_id}`);
+        
+        // Return the core details needed by the frontend
+        res.status(200).json({
+            success: true,
+            user_id: employee.user_id, // This is the Serviceman ID
+            employee_name: employee.name,
+            mobile_number: employee.mobile_number,
+        });
+
+    } catch (e) {
+        console.error("🛑 [API: EMP DETAILS EXCEPTION]", e.message);
+        res.status(500).json({ message: 'Internal server error.' });
+    }
+};
+
+/**
+ * Endpoint 2: Fetches the active dispatch details using the employee's user_id.
+ * This is the second step after resolving the employee's ID.
+ * URL: /api/dispatch/active-order?user_id=...
+ */
+exports.getActiveDispatchByUserId = async (req, res) => {
+    const { user_id } = req.query;
+
+    if (!empSupabase) {
+        return res.status(503).json({ message: 'Employee DB not configured.' });
+    }
+    
+    if (!user_id) {
+        return res.status(400).json({ message: 'Missing user_id query parameter.' });
+    }
+
+    console.log(`🔎 [API: DISPATCH DETAILS] Looking up active dispatch for employee ID: ${user_id}`);
+
+    try {
+        // Find the most recent, non-completed, non-cancelled order assigned to this user_id
+        const { data, error } = await empSupabase
+            .from('dispatch')
+            .select('*')
+            .eq('user_id', user_id)
+            .neq('order_status', 'Assigned') // Filter out Assigned orders
+            .order('dispatched_at', { ascending: false }) // Get the latest one first
+            .limit(1);
+
+        if (error) {
+            console.error("❌ [API: DISPATCH DETAILS] DB Error:", error.message);
+            return res.status(500).json({ message: 'Database query error.', details: error.message });
+        }
+
+        if (!data || data.length === 0) {
+            console.log("ℹ️ [API: DISPATCH DETAILS] No active dispatch found.");
+            return res.status(200).json({ 
+                message: 'No active dispatch found for this employee.',
+                dispatchData: {} // Return an empty object for safe frontend handling
+            });
+        }
+
+        const dispatchRecord = data[0];
+        console.log(`✅ [API: DISPATCH DETAILS] Found active Order ID: ${dispatchRecord.order_id}`);
+        
+        // Return the full dispatch record
+        res.status(200).json({
+            success: true,
+            dispatchData: dispatchRecord
+        });
+
+    } catch (e) {
+        console.error("🛑 [API: DISPATCH DETAILS EXCEPTION]", e.message);
+        res.status(500).json({ message: 'Internal server error.' });
+    }
+};
 /**
  * Fetches the specific member_id from the Main Supabase 'AllowedNumber' table
  * based on phone_number.
@@ -904,6 +1015,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
