@@ -1063,7 +1063,7 @@ exports.cancelActiveDispatch = async (req, res) => {
                 cancellation_reason: reason || 'Agent Cancelled',
                 admin_id: admin_id
             })
-            .eq('id', dispatchData.id); // Use the specific row ID found above
+            .eq('order_id', dispatchData.id); // Use the specific row ID found above
 
         if (empUpdateError) {
              console.error("❌ [EMPLOYEE DB UPDATE ERROR]", empUpdateError.message);
@@ -1242,6 +1242,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
