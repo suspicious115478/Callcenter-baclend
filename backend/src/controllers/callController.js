@@ -309,7 +309,7 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
 /**
  * Endpoint 1: Fetches Employee Details (specifically user_id) using mobile number.
  * This resolves the phone number to the unique employee ID.
- * URL: /call/employee/details?mobile_number=... (Fixed to /call prefix on frontend)
+ * URL: /call/employee/details?mobile_number=...
  */
 exports.getEmployeeDetailsByMobile = async (req, res) => {
     console.log("📞 API: EMPLOYEE DETAILS LOOKUP ATTEMPT (Pre-catch)");
@@ -332,48 +332,33 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
             return res.status(400).json({ message: 'Missing mobile_number query parameter.' });
         }
 
-        // 💡 FIX 1: Normalize the raw input to ensure the leading '+' is retained 
-        // if the database requires it (which your logs suggest it does).
-        // This removes whitespace and ensures only digits and one leading '+' remain.
-        let rawNumber = String(mobile_number).trim();
-        let dbPhoneNumber = rawNumber.replace(/[^0-9+]/g, ''); 
-        
-        // If the number should always start with '+' but was lost in the raw input, 
-        // you might need a more aggressive fix based on your incoming format.
-        // For now, we rely on the previous logic's fix to work:
-        
-        // If the number starts with an invalid character due to previous processing, 
-        // we clean it up further, ensuring the '+' is only at the beginning.
-        // If the database has '+91987653333', the query must be for '+91987653333'.
-        
-        // The previous processing was correct in stripping non-numeric/non-plus, 
-        // but let's confirm the regex:
-        
-        // Final attempt at robust formatting, ensuring only one leading '+' is present:
-        dbPhoneNumber = String(mobile_number)
-            .trim()                     // Remove leading/trailing spaces
-            .replace(/[^\d+]/g, '')     // Remove all non-digits except '+'
-            .replace(/^(\+?)(.*)$/, (match, plus, digits) => {
-                // Ensure there is only one optional '+' at the beginning
-                return (plus ? '+' : '') + digits.replace(/\+/g, '');
-            });
+        // ----------------------------------------------------------------------
+        // 🚀 FINAL FIX FOR MOBILE NUMBER FORMATTING
+        // 1. Normalize the raw input to remove all non-digit/non-plus characters.
+        // 2. Explicitly ensure the resulting string starts with '+'.
+        let dbPhoneNumber = String(mobile_number)
+            .trim()
+            .replace(/[^\d+]/g, ''); // Remove spaces, dashes, etc.
 
+        // If the database requires the '+' (which your logs confirm), ensure it's prepended.
+        if (!dbPhoneNumber.startsWith('+')) {
+            dbPhoneNumber = '+' + dbPhoneNumber;
+        }
 
         console.log(`🔎 [API: EMP DETAILS] Raw Input: "${mobile_number}". Database Key: "${dbPhoneNumber}"`);
 
         console.log(`📡 [API: EMP DETAILS] Querying 'users' table for mobile_number = '${dbPhoneNumber}'...`);
         
-        // Database Query: 💡 FIX 2: Changed 'id' to 'uid' and added all selected columns
+        // Database Query: Uses the corrected 'uid' column and selects all required data
         const { data, error } = await empSupabase
             .from('users')
-            .select('uid') // <-- FIXED: 'uid' column used
-            .eq('mobile_number', dbPhoneNumber) // <-- Now uses the correctly formatted key
+            .select('uid, user_id, name, mobile_number, role') // NOTE: user_id, name, mobile_number are required for the response
+            .eq('mobile_number', dbPhoneNumber) // <-- Now correctly uses the '+'-prefixed key
             .limit(1);
 
         if (error) {
             console.error("❌ [API: EMP DETAILS] DB Query Error:", JSON.stringify(error, null, 2));
             console.groupEnd();
-            // Re-throw the 500 error from the query
             return res.status(500).json({ message: 'Database query error.', details: error.message });
         }
 
@@ -384,13 +369,12 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
         }
         
         const employee = data[0];
-        // NOTE: Ensure employee.user_id and employee.name are actually pulled by the .select() above
         console.log(`✅ [API: EMP DETAILS] Match Found! User ID: ${employee.user_id}, Name: ${employee.name}`);
         
         // Return the core details needed by the frontend
         res.status(200).json({
             success: true,
-            user_id: employee.user_id, // This is the Serviceman ID
+            user_id: employee.user_id,
             employee_name: employee.name,
             mobile_number: employee.mobile_number,
         });
@@ -401,11 +385,10 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
         try { console.groupEnd(); } catch(err) {} 
         res.status(500).json({ 
             message: 'Internal server error.',
-            details: e.message // Include the message to help debug in development
+            details: e.message
         });
     }
 };
-
 // ----------------------------------------------------------------------
 // ----------------------------------------------------------------------
 
@@ -1083,6 +1066,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
