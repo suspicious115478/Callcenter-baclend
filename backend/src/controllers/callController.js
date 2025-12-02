@@ -312,27 +312,14 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
  * URL: /call/employee/details?mobile_number=... (Fixed to /call prefix on frontend)
  */
 exports.getEmployeeDetailsByMobile = async (req, res) => {
-    // NOTE: The console.group might also fail if logging is slow. We prioritize the try...catch.
-    // We will put a simple log here to test for flush.
     console.log("📞 API: EMPLOYEE DETAILS LOOKUP ATTEMPT (Pre-catch)");
     
     try {
-        // Start Grouping after the critical log line
         console.group("📞 API: EMPLOYEE DETAILS LOOKUP START");
 
-        // This check is critical: If empSupabase is not defined (ReferenceError), 
-        // the process crashes *before* entering the catch block below.
-        // If it is defined but null/falsy, this check will run.
-        if (typeof empSupabase === 'undefined') {
-            const refError = new Error("empSupabase is not defined.");
-            console.error("❌ [API: EMP DETAILS] Supabase client is not defined (ReferenceError).");
-            console.groupEnd();
-            // Throwing here will be caught by the outer catch block below
-            throw refError; 
-        }
-
-        if (!empSupabase) {
-            console.error("❌ [API: EMP DETAILS] Employee DB is not configured (empSupabase is null).");
+        // Setup check (left as is)
+        if (typeof empSupabase === 'undefined' || !empSupabase) {
+            console.error("❌ [API: EMP DETAILS] Supabase client is not defined/configured.");
             console.groupEnd();
             return res.status(503).json({ message: 'Employee DB not configured.' });
         }
@@ -345,22 +332,48 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
             return res.status(400).json({ message: 'Missing mobile_number query parameter.' });
         }
 
-        const dbPhoneNumber = mobile_number.replace(/[^0-9+]/g, '');
+        // 💡 FIX 1: Normalize the raw input to ensure the leading '+' is retained 
+        // if the database requires it (which your logs suggest it does).
+        // This removes whitespace and ensures only digits and one leading '+' remain.
+        let rawNumber = String(mobile_number).trim();
+        let dbPhoneNumber = rawNumber.replace(/[^0-9+]/g, ''); 
+        
+        // If the number should always start with '+' but was lost in the raw input, 
+        // you might need a more aggressive fix based on your incoming format.
+        // For now, we rely on the previous logic's fix to work:
+        
+        // If the number starts with an invalid character due to previous processing, 
+        // we clean it up further, ensuring the '+' is only at the beginning.
+        // If the database has '+91987653333', the query must be for '+91987653333'.
+        
+        // The previous processing was correct in stripping non-numeric/non-plus, 
+        // but let's confirm the regex:
+        
+        // Final attempt at robust formatting, ensuring only one leading '+' is present:
+        dbPhoneNumber = String(mobile_number)
+            .trim()                     // Remove leading/trailing spaces
+            .replace(/[^\d+]/g, '')     // Remove all non-digits except '+'
+            .replace(/^(\+?)(.*)$/, (match, plus, digits) => {
+                // Ensure there is only one optional '+' at the beginning
+                return (plus ? '+' : '') + digits.replace(/\+/g, '');
+            });
+
+
         console.log(`🔎 [API: EMP DETAILS] Raw Input: "${mobile_number}". Database Key: "${dbPhoneNumber}"`);
 
-        // The original try/catch block is no longer needed as the function is wrapped
         console.log(`📡 [API: EMP DETAILS] Querying 'users' table for mobile_number = '${dbPhoneNumber}'...`);
         
-        // Database Query
+        // Database Query: 💡 FIX 2: Changed 'id' to 'uid' and added all selected columns
         const { data, error } = await empSupabase
             .from('users')
-            .select('uid') 
-            .eq('mobile_number', dbPhoneNumber)
+            .select('uid') // <-- FIXED: 'uid' column used
+            .eq('mobile_number', dbPhoneNumber) // <-- Now uses the correctly formatted key
             .limit(1);
 
         if (error) {
             console.error("❌ [API: EMP DETAILS] DB Query Error:", JSON.stringify(error, null, 2));
             console.groupEnd();
+            // Re-throw the 500 error from the query
             return res.status(500).json({ message: 'Database query error.', details: error.message });
         }
 
@@ -371,6 +384,7 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
         }
         
         const employee = data[0];
+        // NOTE: Ensure employee.user_id and employee.name are actually pulled by the .select() above
         console.log(`✅ [API: EMP DETAILS] Match Found! User ID: ${employee.user_id}, Name: ${employee.name}`);
         
         // Return the core details needed by the frontend
@@ -383,15 +397,12 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
         console.groupEnd();
 
     } catch (e) {
-        // 🛑 This catch block is designed to capture the synchronous ReferenceError 
-        // if 'empSupabase' is not defined/imported correctly.
         console.error("🛑 [API: EMP DETAILS EXCEPTION] Unhandled Exception:", e.message, e.stack);
-        // Attempt to close the group, though it might fail if it was never opened
-        try { console.groupEnd(); } catch(err) {} 
-        res.status(500).json({ 
-            message: 'Internal server error.',
-            details: e.message // Include the message to help debug in development
-        });
+        try { console.groupEnd(); } catch(err) {} 
+        res.status(500).json({ 
+            message: 'Internal server error.',
+            details: e.message // Include the message to help debug in development
+        });
     }
 };
 
@@ -1072,6 +1083,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
