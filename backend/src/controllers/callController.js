@@ -465,6 +465,72 @@ exports.getActiveDispatchByUserId = async (req, res) => {
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
+
+/**
+ * Endpoint 3: Cancels an active dispatch order.
+ * Updates status to 'Cancelled' and appends the reason to notes.
+ * URL: /call/dispatch/cancel
+ * Method: PUT
+ */
+exports.cancelActiveDispatch = async (req, res) => {
+    console.log("📞 API: CANCEL DISPATCH ATTEMPT");
+
+    try {
+        const { order_id, cancellation_reason } = req.body;
+
+        if (typeof empSupabase === 'undefined' || !empSupabase) {
+            return res.status(503).json({ message: 'Employee DB not configured.' });
+        }
+
+        if (!order_id || !cancellation_reason) {
+            return res.status(400).json({ message: 'Missing order_id or cancellation_reason.' });
+        }
+
+        console.log(`To Cancel: Order #${order_id}. Reason: ${cancellation_reason}`);
+
+        // 1. First, fetch existing notes to append to them (optional, but good practice)
+        const { data: currentData, error: fetchError } = await empSupabase
+            .from('dispatch')
+            .select('order_request')
+            .eq('order_id', order_id)
+            .single();
+
+        if (fetchError) {
+            throw new Error(`Failed to fetch current order data: ${fetchError.message}`);
+        }
+
+        const oldNotes = currentData.order_request || '';
+        const timestamp = new Date().toLocaleString();
+        const newNotes = `${oldNotes}\n\n[CANCELLED by Agent at ${timestamp}]: ${cancellation_reason}`;
+
+        // 2. Update the record
+        const { data, error } = await empSupabase
+            .from('dispatch')
+            .update({ 
+                order_status: 'Cancelled',
+                order_request: newNotes
+            })
+            .eq('order_id', order_id)
+            .select();
+
+        if (error) {
+            console.error("❌ DB Update Error:", error);
+            return res.status(500).json({ message: 'Failed to update order status.', details: error.message });
+        }
+
+        console.log(`✅ Order #${order_id} marked as Cancelled.`);
+        
+        res.status(200).json({ 
+            success: true, 
+            message: 'Order cancelled successfully',
+            data: data[0]
+        });
+
+    } catch (e) {
+        console.error("🛑 Exception in Cancel:", e.message);
+        res.status(500).json({ message: 'Internal server error.', details: e.message });
+    }
+};
 /**
  * Fetches the specific member_id from the Main Supabase 'AllowedNumber' table
  * based on phone_number.
@@ -1067,6 +1133,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
