@@ -352,7 +352,7 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
         // Database Query: Uses the corrected 'uid' column and selects all required data
         const { data, error } = await empSupabase
             .from('users')
-            .select('uid, user_id, name, mobile_number, role') // NOTE: user_id, name, mobile_number are required for the response
+            .select('uid') // NOTE: user_id, name, mobile_number are required for the response
             .eq('mobile_number', dbPhoneNumber) // <-- Now correctly uses the '+'-prefixed key
             .limit(1);
 
@@ -1066,6 +1066,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
