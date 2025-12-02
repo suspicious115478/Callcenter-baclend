@@ -434,7 +434,7 @@ exports.getActiveDispatchByUserId = async (req, res) => {
         const { data, error } = await empSupabase
             .from('dispatch')
             .select('*')
-            .eq('user_id', user_id)
+            .eq('user_id', uid)
             .eq('order_status', requiredStatus) // <-- FIXED HERE: Changed .neq to .eq
             .order('dispatched_at', { ascending: false }) // Get the latest one first
             .limit(1);
@@ -1072,6 +1072,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
