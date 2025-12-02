@@ -10,17 +10,21 @@ const {
     dispatchServiceman,
     getMemberIdByPhoneNumber,
     getAssignedOrders, 
-    cancelOrder,
+    cancelOrder, // (For Customer cancellations)
+    
     // 🚀 NEW IMPORTS: Employee Help Desk APIs
-    getEmployeeDetailsByMobile, // <-- New Function
-    getActiveDispatchByUserId   // <-- New Function
+    getEmployeeDetailsByMobile, // Fetches employee UID
+    getActiveDispatchByUserId,  // Fetches active job details
+    cancelActiveDispatch        // <-- NEW: For cancelling an active dispatch from the Employee Help Desk
 } = require("../controllers/callController"); 
 
 const { io } = require("../socket/socketHandler"); 
 
 const router = express.Router();
 
+// ======================================================================
 // --- GET Routes ---
+// ======================================================================
 
 // 1. Specific Address Lookup (Must be before :userId)
 router.get('/address/lookup/:addressId', getAddressByAddressId);
@@ -43,7 +47,9 @@ router.get("/employee/details", getEmployeeDetailsByMobile);
 router.get("/dispatch/active-order", getActiveDispatchByUserId);
 
 
+// ======================================================================
 // --- POST Routes ---
+// ======================================================================
 
 // 7. Create Ticket
 router.post("/ticket", createTicket);
@@ -58,9 +64,17 @@ router.post("/dispatch", dispatchServiceman);
 router.post("/memberid/lookup", getMemberIdByPhoneNumber);
 
 
+// ======================================================================
 // --- PUT Routes ---
+// ======================================================================
 
-// 11. Cancel Order
+// 11. Cancel Order (Customer Side)
+// Purpose: Used by UserDashboard to cancel a regular customer request
 router.put("/orders/cancel", cancelOrder); 
+
+// 🚀 12. NEW ROUTE: Cancel Active Dispatch (Employee/Agent Side)
+// Purpose: Used by EmployeeHelpDeskPage to cancel an active job ticket
+router.put("/dispatch/cancel", cancelActiveDispatch);
+
 
 module.exports = router;
