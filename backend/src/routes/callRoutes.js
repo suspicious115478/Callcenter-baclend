@@ -1,22 +1,22 @@
-// backend/src/routes/callRoutes.js
-
 const express = require("express");
 
-// 🚨 MODIFICATION: Make sure to import the new controller functions!
-const { 
-    getIncomingCall, 
-    createTicket, 
-    getAddressByUserId, 
-    getAddressByAddressId,
-    getAvailableServicemen,
-    dispatchServiceman,
-    getMemberIdByPhoneNumber,
-    // 🚀 NEW IMPORTS REQUIRED FOR THE DASHBOARD LOGIC
-    getAssignedOrders,    // <-- You need this function in your controller
-    cancelOrder           // <-- You need this function in your controller
-} = require("../controllers/callController"); 
+// 🚨 MODIFICATION: Make sure to import ALL controller functions!
+const { 
+    getIncomingCall, 
+    createTicket, 
+    getAddressByUserId, 
+    getAddressByAddressId,
+    getAvailableServicemen,
+    dispatchServiceman,
+    getMemberIdByPhoneNumber,
+    getAssignedOrders, 
+    cancelOrder,
+    // 🚀 NEW IMPORTS: Employee Help Desk APIs
+    getEmployeeDetailsByMobile, // <-- New Function
+    getActiveDispatchByUserId   // <-- New Function
+} = require("../controllers/callController"); 
 
-const { io } = require("../socket/socketHandler"); 
+const { io } = require("../socket/socketHandler"); 
 
 const router = express.Router();
 
@@ -29,30 +29,38 @@ router.get('/address/lookup/:addressId', getAddressByAddressId);
 router.get("/address/:userId", getAddressByUserId);
 
 // 3. Incoming Call Webhook
-router.get("/incoming", getIncomingCall(io)); 
+router.get("/incoming", getIncomingCall(io)); 
 
-// 🚀 4. NEW ROUTE: Fetch Assigned Orders
-router.get("/orders/assigned", getAssignedOrders); // <-- FIX: Handles /call/orders/assigned?phoneNumber=...
+// 4. Fetch Assigned Orders (Regular Customer Orders)
+router.get("/orders/assigned", getAssignedOrders); 
+
+// 🚀 5. NEW ROUTE: Fetch Employee Details by Mobile Number
+// Purpose: Used by EmployeeHelpDeskPage to get the employee's user_id from their phone number.
+router.get("/employee/details", getEmployeeDetailsByMobile); 
+
+// 🚀 6. NEW ROUTE: Fetch Active Dispatch Order by Employee User ID
+// Purpose: Used by EmployeeHelpDeskPage to check if the employee has an active job.
+router.get("/dispatch/active-order", getActiveDispatchByUserId);
 
 
 // --- POST Routes ---
 
-// 5. Create Ticket
+// 7. Create Ticket
 router.post("/ticket", createTicket);
 
-// 6. Fetch Available Servicemen
+// 8. Fetch Available Servicemen
 router.post("/servicemen/available", getAvailableServicemen);
 
-// 7. Dispatch Serviceman
+// 9. Dispatch Serviceman
 router.post("/dispatch", dispatchServiceman);
 
-// 8. Fetch Member ID by Phone Number
+// 10. Fetch Member ID by Phone Number
 router.post("/memberid/lookup", getMemberIdByPhoneNumber);
 
 
 // --- PUT Routes ---
 
-// 🚀 9. NEW ROUTE: Cancel Order
-router.put("/orders/cancel", cancelOrder); // <-- FIX: Handles /call/orders/cancel
+// 11. Cancel Order
+router.put("/orders/cancel", cancelOrder); 
 
 module.exports = router;
