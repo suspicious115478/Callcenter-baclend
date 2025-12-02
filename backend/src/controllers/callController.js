@@ -145,9 +145,15 @@ const checkIfCallerIsEmployee = async (phoneNumber) => {
         return null;
     }
 
-   const dbPhoneNumber = phoneNumber.replace(/[^0-9+]/g, '');
-    console.log(`> Raw Input:      "${phoneNumber}"`);
-    console.log(`> Database Key:   "${dbPhoneNumber}"`);
+    // FIX: 1. Trim whitespace (removes leading/trailing spaces, including invisible ones).
+    const trimmedPhoneNumber = phoneNumber.trim();
+    
+    // FIX: 2. Normalize: Remove all characters EXCEPT digits (\d) and the plus sign (+).
+    // This is the correct logic for a DB that stores the leading '+'.
+    const dbPhoneNumber = trimmedPhoneNumber.replace(/[^\d+]/g, ''); 
+    
+    console.log(`> Raw Input:       "${phoneNumber}"`);
+    console.log(`> Database Key (Normalized):  "${dbPhoneNumber}"`);
 
     try {
         // 2. Perform Query
@@ -156,7 +162,7 @@ const checkIfCallerIsEmployee = async (phoneNumber) => {
         const { data, error } = await empSupabase
             .from('users') 
             .select('*')
-            .eq('mobile_number', dbPhoneNumber) // ⚠️ Ensure this column name matches your DB exactly!
+            .eq('mobile_number', dbPhoneNumber) // Comparing the cleaned string "+91987651111"
             .limit(1);
 
         // 3. Log Results
@@ -171,9 +177,9 @@ const checkIfCallerIsEmployee = async (phoneNumber) => {
         if (data && data.length > 0) {
             const employee = data[0];
             console.log(`✅ MATCH FOUND!`);
-            console.log(`   - Name: ${employee.name}`);
-            console.log(`   - Role: ${employee.role}`);
-            console.log(`   - ID:   ${employee.id}`);
+            console.log(`    - Name: ${employee.name}`);
+            console.log(`    - Role: ${employee.role}`);
+            console.log(`    - ID:    ${employee.id}`);
             console.groupEnd();
             
             return {
@@ -1061,6 +1067,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
