@@ -807,7 +807,7 @@ exports.getAvailableServicemen = async (req, res) => {
         const { data, error } = await empSupabase
             .from('services') 
             .select('*') 
-            .eq('is_active', true)
+            .eq('is_active', TRUE)
             .ilike('category', `%${service}%`);
 
         if (error) {
@@ -1173,6 +1173,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
