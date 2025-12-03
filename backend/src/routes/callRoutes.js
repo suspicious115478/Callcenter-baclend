@@ -15,7 +15,10 @@ const {
     // 🚀 NEW IMPORTS: Employee Help Desk APIs
     getEmployeeDetailsByMobile, // Fetches employee UID
     getActiveDispatchByUserId,  // Fetches active job details
-    cancelActiveDispatch        // <-- NEW: For cancelling an active dispatch from the Employee Help Desk
+    cancelActiveDispatch,       // For cancelling an active dispatch from the Employee Help Desk
+    
+    // 🔥 NEW IMPORT: For fetching dispatch details by Order ID
+    getDispatchDetails 
 } = require("../controllers/callController"); 
 
 const { io } = require("../socket/socketHandler"); 
@@ -39,28 +42,30 @@ router.get("/incoming", getIncomingCall(io));
 router.get("/orders/assigned", getAssignedOrders); 
 
 // 🚀 5. NEW ROUTE: Fetch Employee Details by Mobile Number
-// Purpose: Used by EmployeeHelpDeskPage to get the employee's user_id from their phone number.
 router.get("/employee/details", getEmployeeDetailsByMobile); 
 
 // 🚀 6. NEW ROUTE: Fetch Active Dispatch Order by Employee User ID
-// Purpose: Used by EmployeeHelpDeskPage to check if the employee has an active job.
 router.get("/dispatch/active-order", getActiveDispatchByUserId);
+
+// 🔥 7. CRITICAL NEW ROUTE: Fetch Dispatch Details by Order ID
+// Purpose: Used by ServiceManSelectionPage for re-dispatching a cancelled order.
+router.get("/dispatch/details/:order_id", getDispatchDetails);
 
 
 // ======================================================================
 // --- POST Routes ---
 // ======================================================================
 
-// 7. Create Ticket
+// 8. Create Ticket
 router.post("/ticket", createTicket);
 
-// 8. Fetch Available Servicemen
+// 9. Fetch Available Servicemen
 router.post("/servicemen/available", getAvailableServicemen);
 
-// 9. Dispatch Serviceman
+// 10. Dispatch Serviceman
 router.post("/dispatch", dispatchServiceman);
 
-// 10. Fetch Member ID by Phone Number
+// 11. Fetch Member ID by Phone Number
 router.post("/memberid/lookup", getMemberIdByPhoneNumber);
 
 
@@ -68,12 +73,10 @@ router.post("/memberid/lookup", getMemberIdByPhoneNumber);
 // --- PUT Routes ---
 // ======================================================================
 
-// 11. Cancel Order (Customer Side)
-// Purpose: Used by UserDashboard to cancel a regular customer request
+// 12. Cancel Order (Customer Side)
 router.put("/orders/cancel", cancelOrder); 
 
-// 🚀 12. NEW ROUTE: Cancel Active Dispatch (Employee/Agent Side)
-// Purpose: Used by EmployeeHelpDeskPage to cancel an active job ticket
+// 🚀 13. NEW ROUTE: Cancel Active Dispatch (Employee/Agent Side)
 router.put("/dispatch/cancel", cancelActiveDispatch);
 
 
