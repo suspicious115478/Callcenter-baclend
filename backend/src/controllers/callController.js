@@ -828,7 +828,47 @@ exports.getAvailableServicemen = async (req, res) => {
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
+/**
+ * 🔥 NEW: Fetches dispatch details by Order ID.
+ * Used for re-dispatching cancelled orders.
+ */
+exports.getDispatchDetails = async (req, res) => {
+    console.group("🔍 [DISPATCH DETAILS LOOKUP]");
+    const { order_id } = req.params;
 
+    if (!order_id) {
+        console.error("⚠️ [ERROR] No order_id specified.");
+        console.groupEnd();
+        return res.status(400).json({ message: 'Order ID is required.' });
+    }
+
+    if (!empSupabase) {
+        return res.status(500).json({ message: 'Employee database unavailable.' });
+    }
+
+    try {
+        const { data, error } = await empSupabase
+            .from('dispatch')
+            .select('ticket_id, phone_number, admin_id, request_address, category, order_request')
+            .eq('order_id', order_id)
+            .single();
+
+        if (error) {
+            console.error("❌ [DB ERROR]", error.message);
+            console.groupEnd();
+            return res.status(404).json({ message: 'Order details not found.' });
+        }
+
+        console.log(`✅ [SUCCESS] Retrieved details for Order: ${order_id}`);
+        console.groupEnd();
+        res.status(200).json(data);
+
+    } catch (e) {
+        console.error("🛑 [EXCEPTION]", e.message);
+        console.groupEnd();
+        res.status(500).json({ message: 'Internal server error.' });
+    }
+};
 // ======================================================================
 // Dispatch Serviceman + Create Order (Modified for Resilience & Customer Name)
 // ======================================================================
@@ -1133,6 +1173,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
