@@ -16,7 +16,7 @@ const {
     getEmployeeDetailsByMobile, // Fetches employee UID
     getActiveDispatchByUserId,  // Fetches active job details
     cancelActiveDispatch,       // For cancelling an active dispatch from the Employee Help Desk
-    
+    getDispatchDetailsByOrderId,
     // 🔥 NEW IMPORT: For fetching dispatch details by Order ID
     getDispatchDetails 
 } = require("../controllers/callController"); 
@@ -79,5 +79,8 @@ router.put("/orders/cancel", cancelOrder);
 // 🚀 13. NEW ROUTE: Cancel Active Dispatch (Employee/Agent Side)
 router.put("/dispatch/cancel", cancelActiveDispatch);
 
+router.get('/dispatch/details/:orderId', getDispatchDetailsByOrderId);
+
 
 module.exports = router;
+
