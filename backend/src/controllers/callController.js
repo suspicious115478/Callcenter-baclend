@@ -674,7 +674,7 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
         status: callData.subscriptionStatus,
         redirect: callData.dashboardLink
     });
-};
+// };
 
 /**
  * Creates a ticket in the logging DB.
@@ -1250,6 +1250,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
