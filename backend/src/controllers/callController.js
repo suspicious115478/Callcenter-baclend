@@ -232,7 +232,7 @@ const checkDispatchPresence = async (phoneNumber) => {
                 foundInDispatch: true,
                 dispatchData: record,
                 userName: record.customer_name || "Dispatch Customer",
-                dashboardLink: `/employee-help-desk`, 
+                dashboardLink: `/user/dashboard/${userId}?phoneNumber=${dbPhoneNumber}`, 
                 ticket: `Existing Dispatch: ${record.order_id}`
             };
         }
@@ -1248,6 +1248,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
