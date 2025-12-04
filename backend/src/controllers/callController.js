@@ -628,23 +628,24 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
 
     // } else {
     //     // 🚀 STEP 2: If NOT Employee, Check Dispatch Table (Table: dispatch)
-    //     const dispatchResult = await checkDispatchPresence(incomingNumber);
+    //     // const dispatchResult = await checkDispatchPresence(incomingNumber);
 
-    //     if (dispatchResult && dispatchResult.foundInDispatch) {
-    //         console.log("⚡ [ROUTING] Call matched in DISPATCH Table. Routing to Help Desk.");
+    //     // if (dispatchResult && dispatchResult.foundInDispatch) {
+    //     //     console.log("⚡ [ROUTING] Call matched in DISPATCH Table. Routing to Help Desk.");
             
-    //         callData = {
-    //             caller: incomingNumber,
-    //             name: dispatchResult.userName,
-    //             subscriptionStatus: "Dispatch Active",
-    //             dashboardLink: dispatchResult.dashboardLink, // /employee-help-desk
-    //             ticket: dispatchResult.ticket,
-    //             isExistingUser: true,
-    //             isEmployeeCall: false,
-    //             dispatchData: dispatchResult.dispatchData
+    //     //     callData = {
+    //     //         caller: incomingNumber,
+    //     //         name: dispatchResult.userName,
+    //     //         subscriptionStatus: "Dispatch Active",
+    //     //         dashboardLink: dispatchResult.dashboardLink, // /employee-help-desk
+    //     //         ticket: dispatchResult.ticket,
+    //     //         isExistingUser: true,
+    //     //         isEmployeeCall: false,
+    //     //         dispatchData: dispatchResult.dispatchData
+                
     //         };
-    //     } 
-        } else {
+        } 
+         else {
             // 🚀 STEP 3: If NOT Dispatch, proceed with Standard User Subscription Check
             console.log("ℹ️ [ROUTING] No Dispatch/Employee record. Checking User Subscription.");
             const userData = await exports.checkSubscriptionStatus(incomingNumber);
@@ -1249,6 +1250,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
