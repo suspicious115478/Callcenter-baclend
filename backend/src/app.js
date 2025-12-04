@@ -21,13 +21,14 @@ const corsOptions = {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+app.use(cors(corsOptions));
 
 app.use("/agent", agentRoutes);
 app.use("/call", callRoutes);
 app.use("/webrtc", webrtcRoutes);
 
 module.exports = app;
+
 
 
 
