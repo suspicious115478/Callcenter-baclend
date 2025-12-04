@@ -24,7 +24,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors({
     origin: '*', // Allow all origins (DEVELOPMENT ONLY)
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization','X-Agent-Id'],
     credentials: true
 }));
 
@@ -33,6 +33,7 @@ app.use("/call", callRoutes);
 app.use("/webrtc", webrtcRoutes);
 
 module.exports = app;
+
 
 
 
