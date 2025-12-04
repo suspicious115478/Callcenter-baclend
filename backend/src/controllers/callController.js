@@ -872,171 +872,180 @@ exports.getDispatchDetails = async (req, res) => {
 // ======================================================================
 // Dispatch Serviceman + Create Order (Modified for Resilience & Customer Name)
 // ======================================================================
+/**
+
+* FIXED Dispatch API
+* * Supports redispatch (keeps same order_id)
+* * Does NOT create duplicate orders
+* * Allows EmployeeHelpDesk dispatch without customer identifiers
+    */
 
 exports.dispatchServiceman = async (req, res) => {
-    console.group("📝 [FULL DISPATCH PROCESS]");
+console.group("🚀 DISPATCH PROCESS");
 
-    if (!empSupabase) {
-        console.error("❌ [ERROR] Employee DB not configured.");
-        console.groupEnd();
-        return res.status(500).json({ message: 'Employee database unavailable.' });
+```
+if (!empSupabase) {
+    console.error("❌ Employee DB missing");
+    return res.status(500).json({ message: "Employee database unavailable." });
+}
+
+const body = req.body;
+
+let {
+    order_id,
+    user_id,          // technician ID
+    category,
+    ticket_id,
+    phone_number,
+    member_id,
+    address_id,
+    request_address,
+    order_request,
+    admin_id
+} = body;
+
+// -------------------- VALIDATE MINIMUM REQUIRED FIELDS --------------------
+if (!order_id || !user_id || !ticket_id || !category) {
+    return res.status(400).json({
+        message: "Missing required fields: order_id, user_id, ticket_id, category"
+    });
+}
+
+if (!admin_id) admin_id = "UNKNOWN_ADMIN";
+
+let customerUserId = null;
+let resolvedMemberId = member_id || null;
+let resolvedAddressId = address_id || null;
+let resolvedCustomerName = "Unknown Customer";
+
+try {
+    // -------------------- MEMBER + CUSTOMER LOOKUP (OPTIONAL) --------------------
+    if (!resolvedMemberId && phone_number) {
+        const cleanPhone = phone_number.replace(/[^0-9]/g, '');
+
+        const { data } = await supabase
+            .from("AllowedNumber")
+            .select("user_id, member_id")
+            .eq("phone_number", cleanPhone)
+            .limit(1);
+
+        if (data && data.length > 0) {
+            resolvedMemberId = data[0].member_id;
+            customerUserId = data[0].user_id;
+        }
     }
 
-    const dispatchData = req.body;
-    let { 
-        order_id, category, user_id, 
-        member_id, phone_number, request_address, 
-        order_status, order_request, 
-        address_id,
+    // If still missing member_id / user_id, skip (EmployeeHelpDesk case)
+    if (resolvedMemberId && !customerUserId) {
+        const { data } = await supabase
+            .from("AllowedNumber")
+            .select("user_id")
+            .eq("member_id", resolvedMemberId)
+            .limit(1);
+
+        if (data && data.length > 0) {
+            customerUserId = data[0].user_id;
+        }
+    }
+
+    // -------------------- ADDRESS LOOKUP (OPTIONAL) --------------------
+    if (!resolvedAddressId && customerUserId) {
+        const { data } = await supabase
+            .from("Address")
+            .select("address_id")
+            .eq("user_id", customerUserId)
+            .limit(1);
+
+        if (data?.length > 0) {
+            resolvedAddressId = data[0].address_id;
+        }
+    }
+
+    // -------------------- DISPATCH INSERT (EMPLOYEE DB) --------------------
+    const dispatchData = {
+        order_id,
+        user_id,
+        category,
         ticket_id,
-        admin_id // ⬅️ NEW: Destructure admin_id from the request body
-    } = dispatchData; 
+        request_address,
+        order_request,
+        phone_number,
+        order_status: "Assigned",
+        dispatched_at: new Date().toISOString(),
+        customer_name: resolvedCustomerName,
+        admin_id
+    };
 
-    let customerUserId = null;
-    let resolvedMemberId = member_id;
-    let resolvedAddressId = address_id;
-    let resolvedCustomerName = 'Unknown Customer'; // Initialize new variable
+    const { data: dp, error: dpErr } = await empSupabase
+        .from("dispatch")
+        .insert([dispatchData])
+        .select("*");
 
-    if (!order_id || !user_id || !category || !ticket_id) {
-        console.error(`⚠️ [ERROR] Missing essential dispatch data.`);
-        console.groupEnd();
-        return res.status(400).json({ message: 'Missing essential dispatch data.' });
-    }
-    
-    // ⚠️ Add check for admin_id if it's a mandatory field
-    if (!admin_id) {
-        console.error("⚠️ [ERROR] Missing admin_id for dispatch record.");
-        admin_id = 'UNKNOWN_ADMIN'; // Fallback if not mandatory
-        console.warn(`[WARNING] Using fallback admin_id: ${admin_id}`);
+    if (dpErr) {
+        console.error("❌ Dispatch insert failed", dpErr);
+        return res.status(500).json({ message: "Failed to insert dispatch." });
     }
 
-    try {
-        // STEP 2: Lookup Customer Identifiers (Member ID and User ID)
-        if (!resolvedMemberId && phone_number) {
-            const dbPhoneNumber = phone_number.replace(/[^0-9]/g, '');
+    // -------------------- MAIN ORDER (INSERT OR UPDATE) --------------------
+    const { data: existingOrder } = await supabase
+        .from("Order")
+        .select("order_id")
+        .eq("order_id", order_id)
+        .limit(1);
 
-            const { data: allowedData, error: allowedError } = await supabase
-                .from('AllowedNumber')
-                .select('user_id, member_id')
-                .eq('phone_number', dbPhoneNumber)
-                .limit(1);
+    const now = new Date().toISOString();
 
-            if (allowedError || !allowedData || allowedData.length === 0) {
-                console.error("❌ [MAIN DB LOOKUP ERROR] Customer not found via phone number.");
-                console.groupEnd();
-                // Instead of failing the whole dispatch, we continue with 'Unknown Customer' for the Dispatch table
-                customerUserId = null; // Set to null to indicate failure for subsequent main DB lookups
-            } else {
-                resolvedMemberId = allowedData[0].member_id;
-                customerUserId = allowedData[0].user_id;
-            }
+    const orderRecord = {
+        user_id: customerUserId,
+        member_id: resolvedMemberId,
+        address_id: resolvedAddressId,
+        service_category: category,
+        service_subcategory: category,
+        work_description: order_request,
+        order_status: "Assigned",
+        updated_at: now
+    };
 
-        } else if (resolvedMemberId) {
-            const { data: allowedData, error: allowedError } = await supabase
-                .from('AllowedNumber')
-                .select('user_id')
-                .eq('member_id', resolvedMemberId)
-                .limit(1);
-            
-            if (allowedError || !allowedData || allowedData.length === 0) {
-                console.error("❌ [MAIN DB LOOKUP ERROR] Customer User ID not found.");
-                console.groupEnd();
-                return res.status(500).json({ message: 'Member ID lookup failed.' });
-            }
+    if (!existingOrder || existingOrder.length === 0) {
+        // Create new order (first dispatch)
+        orderRecord.order_id = order_id;
+        orderRecord.created_at = now;
 
-            customerUserId = allowedData[0].user_id;
-        } else {
-            console.error("❌ [ERROR] Missing customer identifier.");
-            console.groupEnd();
-            return res.status(400).json({ message: 'Missing required customer identifier.' });
-        }
-        
-        // 🌟 NEW STEP: Fetch Customer Name
-        if (customerUserId) {
-            resolvedCustomerName = await fetchCustomerName(customerUserId, resolvedMemberId);
-        }
-        // ---------------------------------
+        const { error: oErr } = await supabase.from("Order").insert([orderRecord]);
+        if (oErr)
+            return res.status(500).json({
+                message: "Dispatch OK, but failed to create order.",
+                error: oErr.message
+            });
+    } else {
+        // Redispatch → update order, DO NOT insert again
+        const { error: oErr } = await supabase
+            .from("Order")
+            .update(orderRecord)
+            .eq("order_id", order_id);
 
-        // Resolve Address ID (Only if we successfully found a customerUserId)
-        if (!resolvedAddressId && customerUserId) {
-            const { data: addressData } = await supabase
-                .from('Address')
-                .select('address_id')
-                .eq('user_id', customerUserId)
-                .limit(1);
-
-            if (addressData && addressData.length > 0) {
-                resolvedAddressId = addressData[0].address_id;
-            }
-        }
-        
-        // STEP 1: Insert into Employee DB (Dispatch Table)
-        const employeeDbData = {
-            order_id, 
-            user_id, // Serviceman
-            category,
-            request_address,
-            order_status: order_status || 'Assigned',
-            order_request,
-            phone_number,
-            ticket_id,
-            dispatched_at: new Date().toISOString(),
-            customer_name: resolvedCustomerName,
-            admin_id: admin_id // ⬅️ NEW: Adding admin_id to the dispatch table data
-        };
-
-        const { data: empData, error: empError } = await empSupabase
-            .from('dispatch') 
-            .insert([employeeDbData])
-            .select('*');
-
-        if (empError) {
-            console.error("❌ [EMPLOYEE DB ERROR]", empError.message);
-            console.groupEnd();
-            return res.status(500).json({ message: 'Failed to insert into Dispatch table.' });
-        }
-
-        // STEP 3: Insert into Main DB (Order Table)
-        const currentTimestamp = new Date().toISOString();
-        const mainDbOrderData = {
-            order_id: order_id,
-            user_id: customerUserId, 
-            member_id: resolvedMemberId, 
-            address_id: resolvedAddressId,
-            service_category: category,
-            service_subcategory: category || 'General Service', 
-            work_description: order_request, 
-            order_status: 'Assigned',
-            scheduled_date: currentTimestamp, 
-            preferred_time: '9:00 AM - 1:00 PM', 
-            created_at: currentTimestamp, 
-            updated_at: currentTimestamp, 
-        };
-
-        const { error: orderError } = await supabase
-            .from('Order') 
-            .insert([mainDbOrderData]);
-
-        if (orderError) {
-            console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
-            console.groupEnd();
-            return res.status(500).json({ message: 'Serviceman dispatched, but Order record failed.', details: orderError.message });
-        }
-
-        console.log(`✅ [SUCCESS] Dispatch Complete for Customer: ${resolvedCustomerName}.`);
-        console.groupEnd();
-        res.status(201).json({
-            message: 'Serviceman dispatched and Order created successfully.',
-            dispatch_id: empData[0]?.id,
-            order_id: order_id
-        });
-
-    } catch (e) {
-        console.error("🛑 [EXCEPTION]", e.message);
-        console.groupEnd();
-        res.status(500).json({ message: 'Internal server error.' });
+        if (oErr)
+            return res.status(500).json({
+                message: "Dispatch OK, but failed to update existing order.",
+                error: oErr.message
+            });
     }
+
+    // -------------------- SUCCESS RESPONSE --------------------
+    res.status(200).json({
+        message: "Serviceman dispatched successfully.",
+        dispatch_id: dp[0].id,
+        order_id
+    });
+
+} catch (ex) {
+    console.error("🔥 EXCEPTION", ex);
+    return res.status(500).json({ message: "Internal server error" });
+}
+```
+
 };
+
 
 // ======================================================================
 // 🚀 NEW: ORDER MANAGEMENT (Assigned Orders & Cancellation)
@@ -1173,6 +1182,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
