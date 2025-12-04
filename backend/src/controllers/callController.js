@@ -206,44 +206,44 @@ const checkIfCallerIsEmployee = async (phoneNumber) => {
 /**
  * 🚀 PRIORITY 2: Check if the number exists in the Dispatch table (Active Customer Job).
  */
-const checkDispatchPresence = async (phoneNumber) => {
-    if (!empSupabase) return null;
+// const checkDispatchPresence = async (phoneNumber) => {
+//     if (!empSupabase) return null;
 
-    const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+//     const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
 
-    try {
-        // Fetch the most recent dispatch record for this number from 'dispatch' table
-        const { data, error } = await empSupabase
-            .from('dispatch')
-            .select('*')
-            .eq('phone_number', dbPhoneNumber)
+//     try {
+//         // Fetch the most recent dispatch record for this number from 'dispatch' table
+//         const { data, error } = await empSupabase
+//             .from('dispatch')
+//             .select('*')
+//             .eq('phone_number', dbPhoneNumber)
             
 
-        if (error) {
-            console.error("[DISPATCH CHECK ERROR]", error.message);
-            return null;
-        }
+//         if (error) {
+//             console.error("[DISPATCH CHECK ERROR]", error.message);
+//             return null;
+//         }
 
-        if (data && data.length > 0) {
-            const record = data[0];
-            console.log(`✅ [DISPATCH FOUND] Number ${dbPhoneNumber} is in Dispatch table. Order ID: ${record.order_id}`);
+//         if (data && data.length > 0) {
+//             const record = data[0];
+//             console.log(`✅ [DISPATCH FOUND] Number ${dbPhoneNumber} is in Dispatch table. Order ID: ${record.order_id}`);
             
-            return {
-                foundInDispatch: true,
-                dispatchData: record,
-                userName: record.customer_name || "Dispatch Customer",
-                dashboardLink: `/user/dashboard/${userId}?phoneNumber=${dbPhoneNumber}`, 
-                ticket: `Existing Dispatch: ${record.order_id}`
-            };
-        }
+//             return {
+//                 foundInDispatch: true,
+//                 dispatchData: record,
+//                 userName: record.customer_name || "Dispatch Customer",
+//                 dashboardLink: `/user/dashboard/${userId}?phoneNumber=${dbPhoneNumber}`, 
+//                 ticket: `Existing Dispatch: ${record.order_id}`
+//             };
+//         }
 
-        return null; // Not found in dispatch table
+//         return null; // Not found in dispatch table
 
-    } catch (e) {
-        console.error("[DISPATCH CHECK EXCEPTION]", e.message);
-        return null;
-    }
-};
+//     } catch (e) {
+//         console.error("[DISPATCH CHECK EXCEPTION]", e.message);
+//         return null;
+//     }
+// };
 
 /**
  * 🚀 PRIORITY 3: Standard Subscription Status Check (Regular Customer).
@@ -628,20 +628,20 @@ exports.getIncomingCall = (ioInstanceGetter) => async (req, res) => {
 
     } else {
         // 🚀 STEP 2: If NOT Employee, Check Dispatch Table (Table: dispatch)
-        const dispatchResult = await checkDispatchPresence(incomingNumber);
+        // const dispatchResult = await checkDispatchPresence(incomingNumber);
 
-        if (dispatchResult && dispatchResult.foundInDispatch) {
-            console.log("⚡ [ROUTING] Call matched in DISPATCH Table. Routing to Help Desk.");
+        if (false) {
+            // console.log("⚡ [ROUTING] Call matched in DISPATCH Table. Routing to Help Desk.");
             
-            callData = {
-                caller: incomingNumber,
-                name: dispatchResult.userName,
-                subscriptionStatus: "Dispatch Active",
-                dashboardLink: dispatchResult.dashboardLink, // /employee-help-desk
-                ticket: dispatchResult.ticket,
-                isExistingUser: true,
-                isEmployeeCall: false,
-                dispatchData: dispatchResult.dispatchData
+            // callData = {
+            //     caller: incomingNumber,
+            //     name: dispatchResult.userName,
+            //     subscriptionStatus: "Dispatch Active",
+            //     dashboardLink: dispatchResult.dashboardLink, // /employee-help-desk
+            //     ticket: dispatchResult.ticket,
+            //     isExistingUser: true,
+            //     isEmployeeCall: false,
+            //     dispatchData: dispatchResult.dispatchData
                 
             };
         } 
@@ -1250,3 +1250,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
