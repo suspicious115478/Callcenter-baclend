@@ -883,7 +883,7 @@ exports.getDispatchDetails = async (req, res) => {
 exports.dispatchServiceman = async (req, res) => {
 console.group("🚀 DISPATCH PROCESS");
 
-```
+
 if (!empSupabase) {
     console.error("❌ Employee DB missing");
     return res.status(500).json({ message: "Employee database unavailable." });
@@ -1042,7 +1042,7 @@ try {
     console.error("🔥 EXCEPTION", ex);
     return res.status(500).json({ message: "Internal server error" });
 }
-```
+
 
 };
 
@@ -1182,6 +1182,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
