@@ -869,6 +869,74 @@ exports.getDispatchDetails = async (req, res) => {
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
+
+// Add this new function to your callController.js
+
+/**
+ * GET Dispatch Details by Order ID
+ * Route: GET /call/dispatch/details/:orderId
+ * Purpose: Fetch full dispatch record for re-dispatch scenarios
+ */
+exports.getDispatchDetailsByOrderId = async (req, res) => {
+    console.group("📋 [GET DISPATCH DETAILS BY ORDER ID]");
+    
+    if (!empSupabase) {
+        console.error("❌ [ERROR] Employee DB not configured.");
+        console.groupEnd();
+        return res.status(500).json({ message: 'Employee database unavailable.' });
+    }
+
+    const { orderId } = req.params;
+
+    if (!orderId) {
+        console.error("⚠️ [ERROR] Missing order_id parameter.");
+        console.groupEnd();
+        return res.status(400).json({ message: 'Order ID is required.' });
+    }
+
+    try {
+        console.log(`[QUERY] Fetching dispatch details for Order ID: ${orderId}`);
+
+        // Query the dispatch table in Employee DB
+        const { data, error } = await empSupabase
+            .from('dispatch')
+            .select('*')
+            .eq('order_id', orderId)
+            .limit(1)
+            .single(); // We expect only one record
+
+        if (error) {
+            console.error("❌ [DB ERROR]", error.message);
+            console.groupEnd();
+            return res.status(404).json({ 
+                message: 'Dispatch record not found.',
+                details: error.message 
+            });
+        }
+
+        if (!data) {
+            console.warn("⚠️ [WARNING] No dispatch record found for this Order ID.");
+            console.groupEnd();
+            return res.status(404).json({ 
+                message: 'No dispatch record found for this Order ID.' 
+            });
+        }
+
+        console.log("✅ [SUCCESS] Dispatch details retrieved:", data);
+        console.groupEnd();
+
+        // Return the full dispatch record
+        res.status(200).json(data);
+
+    } catch (e) {
+        console.error("🛑 [EXCEPTION]", e.message);
+        console.groupEnd();
+        res.status(500).json({ 
+            message: 'Internal server error while fetching dispatch details.',
+            error: e.message 
+        });
+    }
+};
 // ======================================================================
 // Dispatch Serviceman + Create Order (Modified for Resilience & Customer Name)
 // ======================================================================
@@ -1173,6 +1241,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
