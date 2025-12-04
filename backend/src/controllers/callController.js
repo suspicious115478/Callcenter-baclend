@@ -537,34 +537,39 @@ exports.cancelActiveDispatch = async (req, res) => {
  */
 exports.getMemberIdByPhoneNumber = async (req, res) => {
     const { phoneNumber } = req.body;
-
+    
     if (!phoneNumber) {
         console.error("🛑 [MEMBER ID LOOKUP FAIL] Missing phoneNumber in request body.");
         return res.status(400).json({ message: 'Phone number is required.' });
     }
     
-    // Normalize phone number
-    const dbPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+    // 🔥 FIX: Convert to string first, then normalize
+    const dbPhoneNumber = String(phoneNumber).replace(/[^0-9]/g, '');
     
-    console.log(`🔎 [MEMBER ID LOOKUP START] Key: "${dbPhoneNumber}"`);
-
+    console.log(`🔎 [MEMBER ID LOOKUP START] Searching for: "${dbPhoneNumber}"`);
+    
     try {
         const { data, error } = await supabase
             .from('AllowedNumber')
             .select('member_id, phone_number')
             .eq('phone_number', dbPhoneNumber)
             .limit(1);
-
+            
         if (error) {
             console.error("❌ [MEMBER ID DB ERROR]", error.message);
-            return res.status(500).json({ message: 'Database error during member ID lookup.', details: error.message });
+            return res.status(500).json({ 
+                message: 'Database error during member ID lookup.', 
+                details: error.message 
+            });
         }
         
         if (!data || data.length === 0) {
             console.warn(`⚠️ [MEMBER ID 404] No records found.`);
-            return res.status(404).json({ message: 'Phone number not found.' });
+            return res.status(404).json({ 
+                message: 'Phone number not found.' 
+            });
         }
-
+        
         const memberId = data[0].member_id; 
         console.log(`✅ [MEMBER ID SUCCESS] Found Member ID: ${memberId}`);
         
@@ -572,13 +577,15 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
             message: 'Member ID fetched successfully.', 
             member_id: memberId 
         });
-
+        
     } catch (e) {
         console.error("🛑 [MEMBER ID EXCEPTION]", e.message);
-        res.status(500).json({ message: 'Internal server error.' });
+        res.status(500).json({ 
+            message: 'Internal server error.',
+            error: e.message 
+        });
     }
 };
-
 /**
  * Main handler for the incoming call webhook.
  * LOGIC FLOW: 
@@ -1241,6 +1248,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
