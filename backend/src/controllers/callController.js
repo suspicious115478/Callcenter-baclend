@@ -988,7 +988,7 @@ exports.dispatchServiceman = async (req, res) => {
     try {
         // STEP 2: Lookup Customer Identifiers (Member ID and User ID)
         if (!resolvedMemberId && phone_number) {
-            const dbPhoneNumber = phone_number.replace(/[^0-9]/g, '');
+            const dbPhoneNumber = String(phone_number).replace(/[^0-9]/g, '');
 
             const { data: allowedData, error: allowedError } = await supabase
                 .from('AllowedNumber')
@@ -1248,6 +1248,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
