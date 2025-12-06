@@ -17,6 +17,7 @@ const {
     getActiveDispatchByUserId,  // Fetches active job details
     cancelActiveDispatch,       // For cancelling an active dispatch from the Employee Help Desk
     getDispatchDetailsByOrderId,
+    getUserIdByPhoneNumber,
     // 🔥 NEW IMPORT: For fetching dispatch details by Order ID
     getDispatchDetails 
 } = require("../controllers/callController"); 
@@ -81,6 +82,9 @@ router.put("/dispatch/cancel", cancelActiveDispatch);
 
 router.get('/dispatch/details/:orderId', getDispatchDetailsByOrderId);
 
+router.get('/user/lookup', getUserIdByPhoneNumber);
+
 
 module.exports = router;
+
 
