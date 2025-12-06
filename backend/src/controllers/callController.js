@@ -266,6 +266,73 @@ exports.checkSubscriptionStatus = async (phoneNumber) => {
         return handleInactive(dbPhoneNumber, "System Error");
     }
 };
+
+/**
+ * 🔥 NEW API ENDPOINT: Fetches the parent user_id from the Main Supabase 'AllowedNumber' table
+ * based on the provided phone_number query parameter.
+ * URL: /user/lookup?phoneNumber=...
+ */
+exports.getUserIdByPhoneNumber = async (req, res) => {
+    console.group("🔎 [USER ID LOOKUP START]");
+    const { phoneNumber } = req.query; // Expects a query parameter: ?phoneNumber=...
+    
+    if (!phoneNumber) {
+        console.error("🛑 [USER ID LOOKUP FAIL] Missing phoneNumber in query parameters.");
+        console.groupEnd();
+        return res.status(400).json({ message: 'Phone number is required.' });
+    }
+    
+    // Normalize phone number (removes all non-digits, matching your checkSubscriptionStatus logic)
+    const dbPhoneNumber = String(phoneNumber).replace(/[^0-9]/g, '');
+    
+    console.log(`[QUERY] Searching 'AllowedNumber' for: "${dbPhoneNumber}"`);
+    
+    try {
+        // Step 1: Check AllowedNumber to get parent user_id
+        const { data: allowedNumbers, error: allowedError } = await supabase
+            .from('AllowedNumber')
+            .select('user_id')
+            .eq('phone_number', dbPhoneNumber)
+            .limit(1);
+
+        if (allowedError) {
+            console.error("❌ [USER ID DB ERROR]", allowedError.message);
+            console.groupEnd();
+            return res.status(500).json({ 
+                message: 'Database error during user ID lookup.', 
+                details: allowedError.message 
+            });
+        }
+        
+        const userId = allowedNumbers && allowedNumbers.length > 0 ? allowedNumbers[0].user_id : null;
+
+        if (!userId) {
+            console.warn(`⚠️ [USER ID 404] No user_id found for phone: ${dbPhoneNumber}.`);
+            console.groupEnd();
+            // Return 404, which is what the frontend currently expects upon failure
+            return res.status(404).json({ 
+                message: 'User ID not found for this phone number.' 
+            });
+        }
+        
+        console.log(`✅ [USER ID SUCCESS] Found User ID: ${userId}`);
+        console.groupEnd();
+
+        // Return the user_id in the expected format for the frontend
+        res.status(200).json({ 
+            success: true,
+            userId: userId, // <-- This must match the frontend state variable name (userId)
+        });
+        
+    } catch (e) {
+        console.error("🛑 [USER ID LOOKUP EXCEPTION]", e.message);
+        console.groupEnd();
+        res.status(500).json({ 
+            message: 'Internal server error.',
+            error: e.message 
+        });
+    }
+};
 // Assuming this is in a file like 'callController.js' and 'empSupabase' is imported/defined elsewhere.
 
 // ⚡ NEW EMPLOYEE API ENDPOINTS FOR FRONTEND (EmployeeHelpDeskPage.jsx)
@@ -1191,4 +1258,5 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
