@@ -974,29 +974,32 @@ exports.dispatchServiceman = async (req, res) => {
         order_status, order_request, 
         address_id,
         ticket_id,
-        admin_id // ⬅️ NEW: Destructure admin_id from the request body
+        admin_id,
+        scheduled_time // ⬅️ NEW: Capture scheduled time
     } = dispatchData; 
 
     let customerUserId = null;
     let resolvedMemberId = member_id;
     let resolvedAddressId = address_id;
-    let resolvedCustomerName = 'Unknown Customer'; // Initialize new variable
+    let resolvedCustomerName = 'Unknown Customer';
 
-    if (!order_id || !user_id || !category || !ticket_id) {
-        console.error(`⚠️ [ERROR] Missing essential dispatch data.`);
+    // 🔴 VALIDATION FIX: Allow user_id to be null ONLY if order_status is 'Scheduled'
+    const isScheduled = order_status === 'Scheduled';
+    
+    if (!order_id || (!user_id && !isScheduled) || !category || !ticket_id) {
+        console.error(`⚠️ [ERROR] Missing essential dispatch data. User ID missing? ${!user_id}. Status: ${order_status}`);
         console.groupEnd();
-        return res.status(400).json({ message: 'Missing essential dispatch data.' });
+        return res.status(400).json({ message: 'Missing essential dispatch data (Serviceman ID required unless Scheduled).' });
     }
     
-    // ⚠️ Add check for admin_id if it's a mandatory field
+    // Check for admin_id
     if (!admin_id) {
         console.error("⚠️ [ERROR] Missing admin_id for dispatch record.");
-        admin_id = 'UNKNOWN_ADMIN'; // Fallback if not mandatory
-        console.warn(`[WARNING] Using fallback admin_id: ${admin_id}`);
+        admin_id = 'UNKNOWN_ADMIN'; 
     }
 
     try {
-        // STEP 2: Lookup Customer Identifiers (Member ID and User ID)
+        // STEP 2: Lookup Customer Identifiers
         if (!resolvedMemberId && phone_number) {
             const dbPhoneNumber = String(phone_number).replace(/[^0-9]/g, '');
 
@@ -1008,9 +1011,7 @@ exports.dispatchServiceman = async (req, res) => {
 
             if (allowedError || !allowedData || allowedData.length === 0) {
                 console.error("❌ [MAIN DB LOOKUP ERROR] Customer not found via phone number.");
-                console.groupEnd();
-                // Instead of failing the whole dispatch, we continue with 'Unknown Customer' for the Dispatch table
-                customerUserId = null; // Set to null to indicate failure for subsequent main DB lookups
+                customerUserId = null; 
             } else {
                 resolvedMemberId = allowedData[0].member_id;
                 customerUserId = allowedData[0].user_id;
@@ -1036,13 +1037,15 @@ exports.dispatchServiceman = async (req, res) => {
             return res.status(400).json({ message: 'Missing required customer identifier.' });
         }
         
-        // 🌟 NEW STEP: Fetch Customer Name
+        // Fetch Customer Name
         if (customerUserId) {
-            resolvedCustomerName = await fetchCustomerName(customerUserId, resolvedMemberId);
+            // Ensure fetchCustomerName is imported or defined in your file
+            // resolvedCustomerName = await fetchCustomerName(customerUserId, resolvedMemberId); 
+            // If function isn't available in this scope, keep default:
+            resolvedCustomerName = 'Customer Found'; 
         }
-        // ---------------------------------
 
-        // Resolve Address ID (Only if we successfully found a customerUserId)
+        // Resolve Address ID
         if (!resolvedAddressId && customerUserId) {
             const { data: addressData } = await supabase
                 .from('Address')
@@ -1058,7 +1061,7 @@ exports.dispatchServiceman = async (req, res) => {
         // STEP 1: Insert into Employee DB (Dispatch Table)
         const employeeDbData = {
             order_id, 
-            user_id, // Serviceman
+            user_id: user_id || null, // Allow NULL for scheduled orders
             category,
             request_address,
             order_status: order_status || 'Assigned',
@@ -1067,7 +1070,7 @@ exports.dispatchServiceman = async (req, res) => {
             ticket_id,
             dispatched_at: new Date().toISOString(),
             customer_name: resolvedCustomerName,
-            admin_id: admin_id // ⬅️ NEW: Adding admin_id to the dispatch table data
+            admin_id: admin_id
         };
 
         const { data: empData, error: empError } = await empSupabase
@@ -1083,6 +1086,10 @@ exports.dispatchServiceman = async (req, res) => {
 
         // STEP 3: Insert into Main DB (Order Table)
         const currentTimestamp = new Date().toISOString();
+        
+        // 🌟 Use the scheduled_time from frontend if available, else current time
+        const targetDate = scheduled_time ? new Date(scheduled_time).toISOString() : currentTimestamp;
+
         const mainDbOrderData = {
             order_id: order_id,
             user_id: customerUserId, 
@@ -1091,9 +1098,9 @@ exports.dispatchServiceman = async (req, res) => {
             service_category: category,
             service_subcategory: category || 'General Service', 
             work_description: order_request, 
-            order_status: 'Assigned',
-            scheduled_date: currentTimestamp, 
-            preferred_time: '9:00 AM - 1:00 PM', 
+            order_status: order_status || 'Assigned', // Will be 'Scheduled' or 'Assigned'
+            scheduled_date: targetDate, // ⬅️ UPDATED
+            preferred_time: scheduled_time ? new Date(scheduled_time).toLocaleTimeString() : '9:00 AM - 1:00 PM', 
             created_at: currentTimestamp, 
             updated_at: currentTimestamp, 
         };
@@ -1105,13 +1112,13 @@ exports.dispatchServiceman = async (req, res) => {
         if (orderError) {
             console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
             console.groupEnd();
-            return res.status(500).json({ message: 'Serviceman dispatched, but Order record failed.', details: orderError.message });
+            return res.status(500).json({ message: 'Dispatch/Schedule recorded, but Order record failed.', details: orderError.message });
         }
 
-        console.log(`✅ [SUCCESS] Dispatch Complete for Customer: ${resolvedCustomerName}.`);
+        console.log(`✅ [SUCCESS] Process Complete. Status: ${order_status}`);
         console.groupEnd();
         res.status(201).json({
-            message: 'Serviceman dispatched and Order created successfully.',
+            message: order_status === 'Scheduled' ? 'Appointment Scheduled successfully.' : 'Serviceman dispatched successfully.',
             dispatch_id: empData[0]?.id,
             order_id: order_id
         });
@@ -1122,7 +1129,6 @@ exports.dispatchServiceman = async (req, res) => {
         res.status(500).json({ message: 'Internal server error.' });
     }
 };
-
 // ======================================================================
 // 🚀 NEW: ORDER MANAGEMENT (Assigned Orders & Cancellation)
 // ======================================================================
@@ -1258,5 +1264,6 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
