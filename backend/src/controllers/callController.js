@@ -1070,7 +1070,8 @@ exports.dispatchServiceman = async (req, res) => {
             ticket_id,
             dispatched_at: new Date().toISOString(),
             customer_name: resolvedCustomerName,
-            admin_id: admin_id
+            admin_id: admin_id,
+            scheduled_time: scheduled_time || null
         };
 
         const { data: empData, error: empError } = await empSupabase
@@ -1264,6 +1265,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
