@@ -558,8 +558,10 @@ exports.cancelActiveDispatch = async (req, res) => {
     }
 };
 /**
- * Fetches the specific member_id from the Main Supabase 'AllowedNumber' table
+ * 🔥 UPDATED: Fetches member_id AND customer_name from the Main Supabase 'AllowedNumber' table
  * based on phone_number.
+ * URL: POST /call/memberid/lookup
+ * Body: { phoneNumber: "..." }
  */
 exports.getMemberIdByPhoneNumber = async (req, res) => {
     const { phoneNumber } = req.body;
@@ -569,15 +571,15 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
         return res.status(400).json({ message: 'Phone number is required.' });
     }
     
-    // 🔥 FIX: Convert to string first, then normalize
     const dbPhoneNumber = String(phoneNumber).replace(/[^0-9]/g, '');
     
-    console.log(`🔎 [MEMBER ID LOOKUP START] Searching for: "${dbPhoneNumber}"`);
+    console.log(`🔎 [MEMBER ID & NAME LOOKUP START] Searching for: "${dbPhoneNumber}"`);
     
     try {
+        // STEP 1: Get member_id and user_id from AllowedNumber table
         const { data, error } = await supabase
             .from('AllowedNumber')
-            .select('member_id, phone_number')
+            .select('member_id, user_id, phone_number')
             .eq('phone_number', dbPhoneNumber)
             .limit(1);
             
@@ -596,12 +598,29 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
             });
         }
         
-        const memberId = data[0].member_id; 
-        console.log(`✅ [MEMBER ID SUCCESS] Found Member ID: ${memberId}`);
+        const memberId = data[0].member_id;
+        const userId = data[0].user_id;
         
+        console.log(`✅ [MEMBER ID SUCCESS] Found Member ID: ${memberId}, User ID: ${userId}`);
+        
+        // STEP 2: Fetch customer name using the helper function
+        let customerName = 'Unknown Customer';
+        
+        if (userId) {
+            try {
+                customerName = await fetchCustomerName(userId, memberId);
+                console.log(`✅ [CUSTOMER NAME FETCHED] Name: ${customerName}`);
+            } catch (nameError) {
+                console.error("⚠️ [CUSTOMER NAME ERROR]", nameError);
+                customerName = 'Unknown Customer';
+            }
+        }
+        
+        // STEP 3: Return both member_id and customer_name
         res.status(200).json({ 
-            message: 'Member ID fetched successfully.', 
-            member_id: memberId 
+            message: 'Member ID and name fetched successfully.', 
+            member_id: memberId,
+            customer_name: customerName // ⭐ NOW INCLUDED
         });
         
     } catch (e) {
@@ -1331,6 +1350,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
