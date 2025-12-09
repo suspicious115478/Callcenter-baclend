@@ -955,7 +955,7 @@ exports.getDispatchDetailsByOrderId = async (req, res) => {
     }
 };
 // ======================================================================
-// Dispatch Serviceman + Create Order (Modified for Resilience & Customer Name)
+// UPDATED: Dispatch Serviceman with Scheduled Order Support
 // ======================================================================
 
 exports.dispatchServiceman = async (req, res) => {
@@ -975,7 +975,8 @@ exports.dispatchServiceman = async (req, res) => {
         address_id,
         ticket_id,
         admin_id,
-        scheduled_time // ⬅️ NEW: Capture scheduled time
+        scheduled_time,
+        isScheduledUpdate // 🚀 NEW: Flag indicating this is updating an existing scheduled order
     } = dispatchData; 
 
     let customerUserId = null;
@@ -983,23 +984,28 @@ exports.dispatchServiceman = async (req, res) => {
     let resolvedAddressId = address_id;
     let resolvedCustomerName = 'Unknown Customer';
 
-    // 🔴 VALIDATION FIX: Allow user_id to be null ONLY if order_status is 'Scheduled'
+    // 🔴 VALIDATION: For scheduled updates, we MUST have user_id (serviceman)
+    if (isScheduledUpdate && !user_id) {
+        console.error("⚠️ [ERROR] Scheduled update requires serviceman user_id.");
+        console.groupEnd();
+        return res.status(400).json({ message: 'Serviceman ID required for scheduled order assignment.' });
+    }
+
     const isScheduled = order_status === 'Scheduled';
     
     if (!order_id || (!user_id && !isScheduled) || !category || !ticket_id) {
         console.error(`⚠️ [ERROR] Missing essential dispatch data. User ID missing? ${!user_id}. Status: ${order_status}`);
         console.groupEnd();
-        return res.status(400).json({ message: 'Missing essential dispatch data (Serviceman ID required unless Scheduled).' });
+        return res.status(400).json({ message: 'Missing essential dispatch data.' });
     }
     
-    // Check for admin_id
     if (!admin_id) {
         console.error("⚠️ [ERROR] Missing admin_id for dispatch record.");
         admin_id = 'UNKNOWN_ADMIN'; 
     }
 
     try {
-        // STEP 2: Lookup Customer Identifiers
+        // STEP 1: Lookup Customer Identifiers
         if (!resolvedMemberId && phone_number) {
             const dbPhoneNumber = String(phone_number).replace(/[^0-9]/g, '');
 
@@ -1039,9 +1045,6 @@ exports.dispatchServiceman = async (req, res) => {
         
         // Fetch Customer Name
         if (customerUserId) {
-            // Ensure fetchCustomerName is imported or defined in your file
-            // resolvedCustomerName = await fetchCustomerName(customerUserId, resolvedMemberId); 
-            // If function isn't available in this scope, keep default:
             resolvedCustomerName = 'Customer Found'; 
         }
 
@@ -1058,69 +1061,132 @@ exports.dispatchServiceman = async (req, res) => {
             }
         }
         
-        // STEP 1: Insert into Employee DB (Dispatch Table)
-        const employeeDbData = {
-            order_id, 
-            user_id: user_id || null, // Allow NULL for scheduled orders
-            category,
-            request_address,
-            order_status: order_status || 'Assigned',
-            order_request,
-            phone_number,
-            ticket_id,
-            dispatched_at: new Date().toISOString(),
-            customer_name: resolvedCustomerName,
-            admin_id: admin_id,
-            scheduled_time: scheduled_time || null
-        };
+        // 🚀 STEP 2: Handle Employee DB (Dispatch Table) - UPDATE or INSERT
+        if (isScheduledUpdate) {
+            // UPDATE existing dispatch record
+            console.log(`🔄 [SCHEDULED UPDATE] Updating Order ID: ${order_id} with serviceman: ${user_id}`);
+            
+            const updateData = {
+                user_id: user_id, // Assign the serviceman
+                order_status: 'Assigned', // Change status from 'Scheduling' to 'Assigned'
+                updated_at: new Date().toISOString(),
+            };
 
-        const { data: empData, error: empError } = await empSupabase
-            .from('dispatch') 
-            .insert([employeeDbData])
-            .select('*');
+            const { data: empUpdateData, error: empUpdateError } = await empSupabase
+                .from('dispatch')
+                .update(updateData)
+                .eq('order_id', order_id)
+                .select('*');
 
-        if (empError) {
-            console.error("❌ [EMPLOYEE DB ERROR]", empError.message);
-            console.groupEnd();
-            return res.status(500).json({ message: 'Failed to insert into Dispatch table.' });
+            if (empUpdateError) {
+                console.error("❌ [EMPLOYEE DB UPDATE ERROR]", empUpdateError.message);
+                console.groupEnd();
+                return res.status(500).json({ message: 'Failed to update Dispatch table.' });
+            }
+
+            console.log("✅ [EMPLOYEE DB] Dispatch record updated successfully.");
+
+        } else {
+            // INSERT new dispatch record (normal flow)
+            const employeeDbData = {
+                order_id, 
+                user_id: user_id || null,
+                category,
+                request_address,
+                order_status: order_status || 'Assigned',
+                order_request,
+                phone_number,
+                ticket_id,
+                dispatched_at: new Date().toISOString(),
+                customer_name: resolvedCustomerName,
+                admin_id: admin_id,
+                scheduled_time: scheduled_time || null
+            };
+
+            const { data: empData, error: empError } = await empSupabase
+                .from('dispatch') 
+                .insert([employeeDbData])
+                .select('*');
+
+            if (empError) {
+                console.error("❌ [EMPLOYEE DB ERROR]", empError.message);
+                console.groupEnd();
+                return res.status(500).json({ message: 'Failed to insert into Dispatch table.' });
+            }
+
+            console.log("✅ [EMPLOYEE DB] New dispatch record created.");
         }
 
-        // STEP 3: Insert into Main DB (Order Table)
+        // 🚀 STEP 3: Handle Main DB (Order Table) - UPDATE or INSERT
         const currentTimestamp = new Date().toISOString();
-        
-        // 🌟 Use the scheduled_time from frontend if available, else current time
         const targetDate = scheduled_time ? new Date(scheduled_time).toISOString() : currentTimestamp;
 
-        const mainDbOrderData = {
-            order_id: order_id,
-            user_id: customerUserId, 
-            member_id: resolvedMemberId, 
-            address_id: resolvedAddressId,
-            service_category: category,
-            service_subcategory: category || 'General Service', 
-            work_description: order_request, 
-            order_status: order_status || 'Assigned', // Will be 'Scheduled' or 'Assigned'
-            scheduled_date: targetDate, // ⬅️ UPDATED
-            preferred_time: scheduled_time ? new Date(scheduled_time).toLocaleTimeString() : '9:00 AM - 1:00 PM', 
-            created_at: currentTimestamp, 
-            updated_at: currentTimestamp, 
-        };
+        if (isScheduledUpdate) {
+            // UPDATE existing order record
+            console.log(`🔄 [ORDER UPDATE] Updating Order ID: ${order_id} status to Assigned`);
+            
+            const orderUpdateData = {
+                order_status: 'Assigned',
+                updated_at: currentTimestamp,
+            };
 
-        const { error: orderError } = await supabase
-            .from('Order') 
-            .insert([mainDbOrderData]);
+            const { error: orderUpdateError } = await supabase
+                .from('Order')
+                .update(orderUpdateData)
+                .eq('order_id', order_id);
 
-        if (orderError) {
-            console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
-            console.groupEnd();
-            return res.status(500).json({ message: 'Dispatch/Schedule recorded, but Order record failed.', details: orderError.message });
+            if (orderUpdateError) {
+                console.error("❌ [MAIN DB ORDER UPDATE ERROR]", orderUpdateError.message);
+                console.groupEnd();
+                return res.status(500).json({ 
+                    message: 'Dispatch updated, but Order status update failed.', 
+                    details: orderUpdateError.message 
+                });
+            }
+
+            console.log("✅ [MAIN DB] Order status updated to Assigned.");
+
+        } else {
+            // INSERT new order record (normal flow)
+            const mainDbOrderData = {
+                order_id: order_id,
+                user_id: customerUserId, 
+                member_id: resolvedMemberId, 
+                address_id: resolvedAddressId,
+                service_category: category,
+                service_subcategory: category || 'General Service', 
+                work_description: order_request, 
+                order_status: order_status || 'Assigned',
+                scheduled_date: targetDate,
+                preferred_time: scheduled_time ? new Date(scheduled_time).toLocaleTimeString() : '9:00 AM - 1:00 PM', 
+                created_at: currentTimestamp, 
+                updated_at: currentTimestamp, 
+            };
+
+            const { error: orderError } = await supabase
+                .from('Order') 
+                .insert([mainDbOrderData]);
+
+            if (orderError) {
+                console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
+                console.groupEnd();
+                return res.status(500).json({ 
+                    message: 'Dispatch/Schedule recorded, but Order record failed.', 
+                    details: orderError.message 
+                });
+            }
+
+            console.log("✅ [MAIN DB] New order record created.");
         }
 
-        console.log(`✅ [SUCCESS] Process Complete. Status: ${order_status}`);
+        console.log(`✅ [SUCCESS] ${isScheduledUpdate ? 'Scheduled order assigned' : 'Process Complete'}. Status: ${order_status || 'Assigned'}`);
         console.groupEnd();
-        res.status(201).json({
-            message: order_status === 'Scheduled' ? 'Appointment Scheduled successfully.' : 'Serviceman dispatched successfully.',
-            dispatch_id: empData[0]?.id,
+        
+        res.status(isScheduledUpdate ? 200 : 201).json({
+            message: isScheduledUpdate 
+                ? 'Scheduled order assigned successfully.' 
+                : (order_status === 'Scheduled' ? 'Appointment Scheduled successfully.' : 'Serviceman dispatched successfully.'),
+            dispatch_id: order_id,
             order_id: order_id
         });
 
@@ -1265,6 +1331,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
