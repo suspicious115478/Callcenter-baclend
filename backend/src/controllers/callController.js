@@ -819,19 +819,24 @@ exports.getAddressByAddressId = async (req, res) => {
 // EMPLOYEE DB FUNCTIONS
 // ----------------------------------------------------------------------
 
+// Add this updated function to your callController.js
+
 /**
- * Fetches active servicemen who are interested in the specific service.
+ * 🚀 UPDATED: Fetches active servicemen filtered by category AND subcategories.
+ * Now supports subcategory matching from the services table's sub_categories array.
  */
 exports.getAvailableServicemen = async (req, res) => {
-    console.group("🔍 [SERVICEMEN LOOKUP]");
+    console.group("🔍 [SERVICEMEN LOOKUP WITH SUBCATEGORIES]");
+    
     if (!empSupabase) {
-        console.error("❌ [ERROR] Employee DB not configured (env vars missing).");
+        console.error("❌ [ERROR] Employee DB not configured.");
         console.groupEnd();
         return res.status(500).json({ message: 'Employee database unavailable.' });
     }
 
-    const { service } = req.body; 
+    const { service, subcategories } = req.body; 
     console.log(`[INFO] Searching for service: '${service}'`);
+    console.log(`[INFO] Requested subcategories:`, subcategories);
 
     if (!service) {
         console.error("⚠️ [ERROR] No service specified.");
@@ -840,11 +845,14 @@ exports.getAvailableServicemen = async (req, res) => {
     }
 
     try {
-        const { data, error } = await empSupabase
-            .from('services') 
-            .select('*') 
+        // STEP 1: Base query - fetch all active servicemen for this category
+        let query = empSupabase
+            .from('services')
+            .select('*')
             .eq('is_active', true)
             .ilike('category', `%${service}%`);
+
+        const { data, error } = await query;
 
         if (error) {
             console.error("❌ [SUPABASE ERROR]", JSON.stringify(error, null, 2));
@@ -852,11 +860,301 @@ exports.getAvailableServicemen = async (req, res) => {
             return res.status(500).json({ message: 'Database query failed.', details: error.message });
         }
 
-        const count = data ? data.length : 0;
-        console.log(`✅ [SUCCESS] Found ${count} matching records.`);
-        
+        if (!data || data.length === 0) {
+            console.log(`⚠️ [NO RESULTS] No servicemen found for category: ${service}`);
+            console.groupEnd();
+            return res.status(200).json([]);
+        }
+
+        console.log(`✅ [QUERY SUCCESS] Found ${data.length} servicemen for category: ${service}`);
+
+        // STEP 2: Filter by subcategories (if provided)
+        let filteredData = data;
+
+        if (subcategories && Array.isArray(subcategories) && subcategories.length > 0) {
+            console.log(`🔎 [SUBCATEGORY FILTER] Filtering by ${subcategories.length} subcategories...`);
+
+            filteredData = data.map(serviceman => {
+                // The sub_categories field in the services table is a PostgreSQL array
+                const servicemanSubcategories = serviceman.sub_categories || [];
+                
+                // Find which requested subcategories this serviceman can handle
+                const matchedSubcategories = subcategories.filter(reqSub => 
+                    servicemanSubcategories.some(smSub => 
+                        smSub.toLowerCase().includes(reqSub.toLowerCase()) ||
+                        reqSub.toLowerCase().includes(smSub.toLowerCase())
+                    )
+                );
+
+                // Return serviceman with matched subcategories info
+                return {
+                    ...serviceman,
+                    matchedSubcategories: matchedSubcategories,
+                    subcategoryMatchScore: matchedSubcategories.length
+                };
+            })
+            // Filter out servicemen with zero matches
+            .filter(sm => sm.subcategoryMatchScore > 0)
+            // Sort by best match (most subcategories matched) first
+            .sort((a, b) => b.subcategoryMatchScore - a.subcategoryMatchScore);
+
+            console.log(`✅ [FILTER COMPLETE] ${filteredData.length} servicemen match the requested subcategories.`);
+            
+            // Log match details
+            filteredData.forEach(sm => {
+                console.log(`  - ${sm.full_name || sm.name}: Matched ${sm.subcategoryMatchScore} subcategories: ${sm.matchedSubcategories.join(', ')}`);
+            });
+        } else {
+            console.log(`ℹ️ [NO SUBCATEGORY FILTER] Returning all servicemen for category.`);
+        }
+
         console.groupEnd();
-        res.status(200).json(data || []);
+        res.status(200).json(filteredData);
+
+    } catch (e) {
+        console.error("🛑 [EXCEPTION]", e.message);
+        console.groupEnd();
+        res.status(500).json({ message: 'Internal server error.' });
+    }
+};
+
+/**
+ * 🚀 UPDATED: Dispatch handler now accepts selected_subcategories.
+ * This allows storing which specific subcategories were requested for each dispatch.
+ */
+exports.dispatchServiceman = async (req, res) => {
+    console.group("📝 [FULL DISPATCH PROCESS WITH SUBCATEGORIES]");
+
+    if (!empSupabase) {
+        console.error("❌ [ERROR] Employee DB not configured.");
+        console.groupEnd();
+        return res.status(500).json({ message: 'Employee database unavailable.' });
+    }
+
+    const dispatchData = req.body;
+    let {
+        order_id, category, user_id,
+        member_id, phone_number, request_address,
+        order_status, order_request,
+        address_id,
+        ticket_id,
+        admin_id,
+        scheduled_time,
+        customer_name,
+        isScheduledUpdate,
+        selected_subcategories // 🚀 NEW: Array of subcategories
+    } = dispatchData;
+
+    let customerUserId = null;
+    let resolvedMemberId = member_id;
+    let resolvedAddressId = address_id;
+    let resolvedCustomerName = customer_name || 'Unknown Customer';
+
+    console.log(`[DISPATCH INPUT] Category: ${category}, Subcategories:`, selected_subcategories);
+
+    if (isScheduledUpdate && !user_id) {
+        console.error("⚠️ [ERROR] Scheduled update requires serviceman user_id.");
+        console.groupEnd();
+        return res.status(400).json({ message: 'Serviceman ID required for scheduled order assignment.' });
+    }
+
+    const isScheduled = order_status === 'Scheduled';
+
+    if (!order_id || (!user_id && !isScheduled) || !category || !ticket_id) {
+        console.error(`⚠️ [ERROR] Missing essential dispatch data.`);
+        console.groupEnd();
+        return res.status(400).json({ message: 'Missing essential dispatch data.' });
+    }
+
+    if (!admin_id) {
+        console.error("⚠️ [ERROR] Missing admin_id for dispatch record.");
+        admin_id = 'UNKNOWN_ADMIN';
+    }
+
+    try {
+        // STEP 1: Lookup Customer Identifiers (same as before)
+        if (!resolvedMemberId && phone_number) {
+            const dbPhoneNumber = String(phone_number).replace(/[^0-9]/g, '');
+
+            const { data: allowedData, error: allowedError } = await supabase
+                .from('AllowedNumber')
+                .select('user_id, member_id')
+                .eq('phone_number', dbPhoneNumber)
+                .limit(1);
+
+            if (allowedError || !allowedData || allowedData.length === 0) {
+                console.error("❌ [MAIN DB LOOKUP ERROR] Customer not found.");
+                customerUserId = null;
+            } else {
+                resolvedMemberId = allowedData[0].member_id;
+                customerUserId = allowedData[0].user_id;
+            }
+        } else if (resolvedMemberId) {
+            const { data: allowedData } = await supabase
+                .from('AllowedNumber')
+                .select('user_id')
+                .eq('member_id', resolvedMemberId)
+                .limit(1);
+
+            if (allowedData && allowedData.length > 0) {
+                customerUserId = allowedData[0].user_id;
+            }
+        }
+
+        // Fetch customer name if not provided
+        if (!customer_name || customer_name === 'Unknown Customer') {
+            if (customerUserId) {
+                try {
+                    resolvedCustomerName = await fetchCustomerName(customerUserId, resolvedMemberId);
+                } catch (nameError) {
+                    console.error("⚠️ [CUSTOMER NAME ERROR]", nameError);
+                    resolvedCustomerName = 'Unknown Customer';
+                }
+            }
+        }
+
+        // Resolve Address ID
+        if (!resolvedAddressId && customerUserId) {
+            const { data: addressData } = await supabase
+                .from('Address')
+                .select('address_id')
+                .eq('user_id', customerUserId)
+                .limit(1);
+
+            if (addressData && addressData.length > 0) {
+                resolvedAddressId = addressData[0].address_id;
+            }
+        }
+
+        // STEP 2: Employee DB (Dispatch Table) - UPDATE or INSERT
+        if (isScheduledUpdate) {
+            const updateData = {
+                user_id: user_id,
+                order_status: 'Assigned',
+                updated_at: new Date().toISOString(),
+            };
+
+            const { error: empUpdateError } = await empSupabase
+                .from('dispatch')
+                .update(updateData)
+                .eq('order_id', order_id);
+
+            if (empUpdateError) {
+                console.error("❌ [EMPLOYEE DB UPDATE ERROR]", empUpdateError.message);
+                console.groupEnd();
+                return res.status(500).json({ message: 'Failed to update Dispatch table.' });
+            }
+
+            console.log("✅ [EMPLOYEE DB] Dispatch record updated.");
+
+        } else {
+            // 🚀 NEW: Include selected_subcategories in order_request
+            let enhancedOrderRequest = order_request;
+            if (selected_subcategories && selected_subcategories.length > 0) {
+                enhancedOrderRequest = `${order_request} | Requested Services: ${selected_subcategories.join(', ')}`;
+            }
+
+            const employeeDbData = {
+                order_id,
+                user_id: user_id || null,
+                category,
+                request_address,
+                order_status: order_status || 'Assigned',
+                order_request: enhancedOrderRequest, // 🚀 Now includes subcategories
+                phone_number,
+                ticket_id,
+                dispatched_at: new Date().toISOString(),
+                customer_name: resolvedCustomerName,
+                admin_id: admin_id,
+                scheduled_time: scheduled_time || null
+            };
+
+            const { error: empError } = await empSupabase
+                .from('dispatch')
+                .insert([employeeDbData]);
+
+            if (empError) {
+                console.error("❌ [EMPLOYEE DB ERROR]", empError.message);
+                console.groupEnd();
+                return res.status(500).json({ message: 'Failed to insert into Dispatch table.' });
+            }
+
+            console.log("✅ [EMPLOYEE DB] Dispatch record created with subcategories.");
+        }
+
+        // STEP 3: Main DB (Order Table) - UPDATE or INSERT
+        const currentTimestamp = new Date().toISOString();
+        const targetDate = scheduled_time ? new Date(scheduled_time).toISOString() : currentTimestamp;
+
+        if (isScheduledUpdate) {
+            const orderUpdateData = {
+                order_status: 'Assigned',
+                updated_at: currentTimestamp,
+            };
+
+            const { error: orderUpdateError } = await supabase
+                .from('Order')
+                .update(orderUpdateData)
+                .eq('order_id', order_id);
+
+            if (orderUpdateError) {
+                console.error("❌ [MAIN DB ORDER UPDATE ERROR]", orderUpdateError.message);
+                console.groupEnd();
+                return res.status(500).json({
+                    message: 'Dispatch updated, but Order status update failed.',
+                    details: orderUpdateError.message
+                });
+            }
+
+            console.log("✅ [MAIN DB] Order status updated to Assigned.");
+
+        } else {
+            // 🚀 NEW: Store subcategories in service_subcategory field (comma-separated or as needed)
+            const subcategoryString = selected_subcategories && selected_subcategories.length > 0
+                ? selected_subcategories.join(', ')
+                : category;
+
+            const mainDbOrderData = {
+                order_id: order_id,
+                user_id: customerUserId,
+                member_id: resolvedMemberId,
+                address_id: resolvedAddressId,
+                service_category: category,
+                service_subcategory: subcategoryString, // 🚀 Store subcategories here
+                work_description: order_request,
+                order_status: order_status || 'Assigned',
+                scheduled_date: targetDate,
+                preferred_time: scheduled_time ? new Date(scheduled_time).toLocaleTimeString() : '9:00 AM - 1:00 PM',
+                created_at: currentTimestamp,
+                updated_at: currentTimestamp,
+            };
+
+            const { error: orderError } = await supabase
+                .from('Order')
+                .insert([mainDbOrderData]);
+
+            if (orderError) {
+                console.error("❌ [MAIN DB ORDER ERROR]", orderError.message);
+                console.groupEnd();
+                return res.status(500).json({
+                    message: 'Dispatch recorded, but Order record failed.',
+                    details: orderError.message
+                });
+            }
+
+            console.log("✅ [MAIN DB] Order record created with subcategories.");
+        }
+
+        console.log(`✅ [SUCCESS] Dispatch complete for ${category}.`);
+        console.groupEnd();
+
+        res.status(isScheduledUpdate ? 200 : 201).json({
+            message: isScheduledUpdate
+                ? 'Scheduled order assigned successfully.'
+                : (order_status === 'Scheduled' ? 'Appointment scheduled.' : 'Serviceman dispatched successfully.'),
+            dispatch_id: order_id,
+            order_id: order_id
+        });
 
     } catch (e) {
         console.error("🛑 [EXCEPTION]", e.message);
@@ -1366,6 +1664,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
