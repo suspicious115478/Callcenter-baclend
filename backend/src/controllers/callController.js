@@ -974,7 +974,7 @@ exports.getDispatchDetailsByOrderId = async (req, res) => {
     }
 };
 // ======================================================================
-// UPDATED: Dispatch Serviceman with Scheduled Order Support
+// COMPLETE FIXED: Dispatch Serviceman with Customer Name Support
 // ======================================================================
 
 exports.dispatchServiceman = async (req, res) => {
@@ -995,15 +995,18 @@ exports.dispatchServiceman = async (req, res) => {
         ticket_id,
         admin_id,
         scheduled_time,
-        isScheduledUpdate // 🚀 NEW: Flag indicating this is updating an existing scheduled order
+        customer_name, // 🔥 NEW: Accept customer_name from frontend (for scheduled orders)
+        isScheduledUpdate // Flag indicating this is updating an existing scheduled order
     } = dispatchData; 
 
     let customerUserId = null;
     let resolvedMemberId = member_id;
     let resolvedAddressId = address_id;
-    let resolvedCustomerName = 'Unknown Customer';
+    let resolvedCustomerName = customer_name || 'Unknown Customer'; // 🔥 FIX: Use customer_name from payload first
 
-    // 🔴 VALIDATION: For scheduled updates, we MUST have user_id (serviceman)
+    console.log(`[DISPATCH INPUT] customer_name from payload: "${customer_name}"`);
+
+    // Validation: For scheduled updates, we MUST have user_id (serviceman)
     if (isScheduledUpdate && !user_id) {
         console.error("⚠️ [ERROR] Scheduled update requires serviceman user_id.");
         console.groupEnd();
@@ -1024,7 +1027,7 @@ exports.dispatchServiceman = async (req, res) => {
     }
 
     try {
-        // STEP 1: Lookup Customer Identifiers
+        // STEP 1: Lookup Customer Identifiers (if not provided)
         if (!resolvedMemberId && phone_number) {
             const dbPhoneNumber = String(phone_number).replace(/[^0-9]/g, '');
 
@@ -1062,9 +1065,20 @@ exports.dispatchServiceman = async (req, res) => {
             return res.status(400).json({ message: 'Missing required customer identifier.' });
         }
         
-        // Fetch Customer Name
-        if (customerUserId) {
-            resolvedCustomerName = 'Customer Found'; 
+        // 🔥 FIX: Only fetch customer name from DB if NOT already provided in payload
+        if (!customer_name || customer_name === 'Unknown Customer') {
+            console.log("🔍 [NAME FETCH] Customer name not in payload, fetching from database...");
+            if (customerUserId) {
+                try {
+                    resolvedCustomerName = await fetchCustomerName(customerUserId, resolvedMemberId);
+                    console.log(`✅ [CUSTOMER NAME FETCHED FROM DB] Name: ${resolvedCustomerName}`);
+                } catch (nameError) {
+                    console.error("⚠️ [CUSTOMER NAME ERROR]", nameError);
+                    resolvedCustomerName = 'Unknown Customer';
+                }
+            }
+        } else {
+            console.log(`✅ [CUSTOMER NAME FROM PAYLOAD] Using provided name: ${resolvedCustomerName}`);
         }
 
         // Resolve Address ID
@@ -1080,14 +1094,14 @@ exports.dispatchServiceman = async (req, res) => {
             }
         }
         
-        // 🚀 STEP 2: Handle Employee DB (Dispatch Table) - UPDATE or INSERT
+        // STEP 2: Handle Employee DB (Dispatch Table) - UPDATE or INSERT
         if (isScheduledUpdate) {
             // UPDATE existing dispatch record
             console.log(`🔄 [SCHEDULED UPDATE] Updating Order ID: ${order_id} with serviceman: ${user_id}`);
             
             const updateData = {
-                user_id: user_id, // Assign the serviceman
-                order_status: 'Assigned', // Change status from 'Scheduling' to 'Assigned'
+                user_id: user_id,
+                order_status: 'Assigned',
                 updated_at: new Date().toISOString(),
             };
 
@@ -1106,7 +1120,7 @@ exports.dispatchServiceman = async (req, res) => {
             console.log("✅ [EMPLOYEE DB] Dispatch record updated successfully.");
 
         } else {
-            // INSERT new dispatch record (normal flow)
+            // INSERT new dispatch record (normal flow or scheduled)
             const employeeDbData = {
                 order_id, 
                 user_id: user_id || null,
@@ -1117,10 +1131,12 @@ exports.dispatchServiceman = async (req, res) => {
                 phone_number,
                 ticket_id,
                 dispatched_at: new Date().toISOString(),
-                customer_name: resolvedCustomerName,
+                customer_name: resolvedCustomerName, // 🔥 FIX: Now uses the correct name
                 admin_id: admin_id,
                 scheduled_time: scheduled_time || null
             };
+
+            console.log(`[EMPLOYEE DB INSERT] customer_name being saved: "${resolvedCustomerName}"`);
 
             const { data: empData, error: empError } = await empSupabase
                 .from('dispatch') 
@@ -1133,10 +1149,10 @@ exports.dispatchServiceman = async (req, res) => {
                 return res.status(500).json({ message: 'Failed to insert into Dispatch table.' });
             }
 
-            console.log("✅ [EMPLOYEE DB] New dispatch record created.");
+            console.log("✅ [EMPLOYEE DB] New dispatch record created with customer_name:", empData[0].customer_name);
         }
 
-        // 🚀 STEP 3: Handle Main DB (Order Table) - UPDATE or INSERT
+        // STEP 3: Handle Main DB (Order Table) - UPDATE or INSERT
         const currentTimestamp = new Date().toISOString();
         const targetDate = scheduled_time ? new Date(scheduled_time).toISOString() : currentTimestamp;
 
@@ -1350,6 +1366,7 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
 
 
