@@ -19,7 +19,8 @@ const {
     getDispatchDetailsByOrderId,
     getUserIdByPhoneNumber,
     // 🔥 NEW IMPORT: For fetching dispatch details by Order ID
-    getDispatchDetails 
+    getDispatchDetails,
+    updateOrderStatus
 } = require("../controllers/callController"); 
 
 const { io } = require("../socket/socketHandler"); 
@@ -84,7 +85,9 @@ router.get('/dispatch/details/:orderId', getDispatchDetailsByOrderId);
 
 router.get('/user/lookup', getUserIdByPhoneNumber);
 
+router.put('/call/orders/update-status', updateOrderStatus);
 
 module.exports = router;
+
 
 
