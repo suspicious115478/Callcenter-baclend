@@ -814,7 +814,73 @@ exports.getAddressByAddressId = async (req, res) => {
         res.status(500).json({ message: 'Server Error' });
     }
 };
+// Add this new endpoint to your callController.js file:
 
+/**
+ * 🚀 NEW: Update Order Status in Main DB
+ * Used when transitioning from 'Placing' to 'Assigned' after serviceman dispatch
+ * URL: PUT /call/orders/update-status
+ * Body: { orderId, status }
+ */
+exports.updateOrderStatus = async (req, res) => {
+    console.group("🔄 [UPDATE ORDER STATUS]");
+    const { orderId, status } = req.body;
+    
+    if (!orderId || !status) {
+        console.error("⚠️ [ERROR] Missing orderId or status in request body.");
+        console.groupEnd();
+        return res.status(400).json({ message: 'Order ID and status are required.' });
+    }
+
+    console.log(`[UPDATE] Order ID: ${orderId}, New Status: ${status}`);
+
+    try {
+        const { data, error } = await supabase
+            .from('Order')
+            .update({ 
+                order_status: status,
+                updated_at: new Date().toISOString()
+            })
+            .eq('order_id', orderId)
+            .select('order_id')
+            .maybeSingle();
+
+        if (error) {
+            console.error("❌ [DB ERROR]", error.message);
+            console.groupEnd();
+            return res.status(500).json({ 
+                message: 'Database error during status update.', 
+                details: error.message 
+            });
+        }
+
+        if (!data) {
+            console.warn(`⚠️ [NOT FOUND] Order ID ${orderId} not found or update blocked.`);
+            console.groupEnd();
+            return res.status(404).json({ 
+                message: `Order ID ${orderId} not found.` 
+            });
+        }
+
+        console.log(`✅ [SUCCESS] Order ${orderId} status updated to ${status}`);
+        console.groupEnd();
+
+        res.status(200).json({ 
+            success: true,
+            message: 'Order status updated successfully.',
+            orderId: orderId,
+            newStatus: status
+        });
+
+    } catch (e) {
+        console.error("🛑 [EXCEPTION]", e.message);
+        console.groupEnd();
+        res.status(500).json({ 
+            message: 'Internal server error.',
+            error: e.message 
+        });
+    }
+};
 // ----------------------------------------------------------------------
 // EMPLOYEE DB FUNCTIONS
 // ----------------------------------------------------------------------
@@ -1664,3 +1730,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
