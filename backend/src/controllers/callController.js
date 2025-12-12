@@ -65,7 +65,7 @@ const handleInactive = (dbPhoneNumber, name) => ({
  */
 const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
     if (!customerUserId) {
-        console.log("⚠️ [NAME LOOKUP] No customerUserId provided.");
+        // console.log("⚠️ [NAME LOOKUP] No customerUserId provided.");
         return 'Unknown Customer';
     }
 
@@ -73,7 +73,7 @@ const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
         let customerName = null;
 
         if (resolvedMemberId) {
-            console.log(`🔎 [NAME LOOKUP] Trying Member table for member_id: ${resolvedMemberId}`);
+            // console.log(`🔎 [NAME LOOKUP] Trying Member table for member_id: ${resolvedMemberId}`);
             const { data: memberData, error: memberError } = await supabase
                 .from('Member')
                 .select('name')
@@ -86,7 +86,7 @@ const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
                 customerName = memberData[0].name;
 
                 if (customerName) {
-                    console.log(`✅ [NAME LOOKUP] Found name in Member table: ${customerName}`);
+                    // console.log(`✅ [NAME LOOKUP] Found name in Member table: ${customerName}`);
                     return customerName;
                 } else {
                     console.warn(`⚠️ [NAME LOOKUP] Member record found for ID ${resolvedMemberId}, but name column is NULL/EMPTY. Falling back to User table.`);
@@ -96,7 +96,7 @@ const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
             }
         }
 
-        console.log(`🔎 [NAME LOOKUP] Falling back to User table for user_id: ${customerUserId}`);
+        // console.log(`🔎 [NAME LOOKUP] Falling back to User table for user_id: ${customerUserId}`);
         const { data: userData, error: userError } = await supabase
             .from('User')
             .select('name')
@@ -110,7 +110,7 @@ const fetchCustomerName = async (customerUserId, resolvedMemberId) => {
 
         if (userData && userData.length > 0 && userData[0].name) {
             customerName = userData[0].name;
-            console.log(`✅ [NAME LOOKUP] Found name in User table: ${customerName}`);
+            // console.log(`✅ [NAME LOOKUP] Found name in User table: ${customerName}`);
             return customerName;
         }
 
@@ -139,11 +139,11 @@ const checkIfCallerIsEmployee = async (phoneNumber) => {
     const trimmedPhoneNumber = phoneNumber.trim();
     const dbPhoneNumber = trimmedPhoneNumber.replace(/[^\d+]/g, ''); 
     
-    console.log(`> Raw Input: "${phoneNumber}"`);
-    console.log(`> Database Key (Normalized): "${dbPhoneNumber}"`);
+    // console.log(`> Raw Input: "${phoneNumber}"`);
+    // console.log(`> Database Key (Normalized): "${dbPhoneNumber}"`);
 
     try {
-        console.log(`> Querying 'users' table where mobile_number = '${dbPhoneNumber}'...`);
+        // console.log(`> Querying 'users' table where mobile_number = '${dbPhoneNumber}'...`);
         
         const { data, error } = await empSupabase
             .from('users') 
@@ -156,14 +156,14 @@ const checkIfCallerIsEmployee = async (phoneNumber) => {
             return null;
         }
 
-        console.log(`> Result Rows Found: ${data ? data.length : 0}`);
+        // console.log(`> Result Rows Found: ${data ? data.length : 0}`);
 
         if (data && data.length > 0) {
             const employee = data[0];
-            console.log(`✅ MATCH FOUND!`);
-            console.log(`    - Name: ${employee.name}`);
-            console.log(`    - Role: ${employee.role}`);
-            console.log(`    - ID: ${employee.id}`);
+            // console.log(`✅ MATCH FOUND!`);
+            // console.log(`    - Name: ${employee.name}`);
+            // console.log(`    - Role: ${employee.role}`);
+            // console.log(`    - ID: ${employee.id}`);
             
             return {
                 isEmployee: true,
@@ -174,7 +174,7 @@ const checkIfCallerIsEmployee = async (phoneNumber) => {
                 employeeData: employee
             };
         } else {
-            console.log("❌ No match in 'users' table.");
+            // console.log("❌ No match in 'users' table.");
             return null; 
         }
 
@@ -260,7 +260,7 @@ exports.getUserIdByPhoneNumber = async (req, res) => {
     
     const dbPhoneNumber = String(phoneNumber).replace(/[^0-9]/g, '');
     
-    console.log(`[QUERY] Searching 'AllowedNumber' for: "${dbPhoneNumber}"`);
+    // console.log(`[QUERY] Searching 'AllowedNumber' for: "${dbPhoneNumber}"`);
     
     try {
         const { data: allowedNumbers, error: allowedError } = await supabase
@@ -288,7 +288,7 @@ exports.getUserIdByPhoneNumber = async (req, res) => {
             });
         }
         
-        console.log(`✅ [USER ID SUCCESS] Found User ID: ${userId}`);
+        // console.log(`✅ [USER ID SUCCESS] Found User ID: ${userId}`);
         console.groupEnd();
 
         res.status(200).json({ 
@@ -310,10 +310,10 @@ exports.getUserIdByPhoneNumber = async (req, res) => {
  * Fetches Employee Details by Mobile Number
  */
 exports.getEmployeeDetailsByMobile = async (req, res) => {
-    console.log("📞 API: EMPLOYEE DETAILS LOOKUP ATTEMPT");
+    // console.log("📞 API: EMPLOYEE DETAILS LOOKUP ATTEMPT");
     
     try {
-        console.group("📞 API: EMPLOYEE DETAILS LOOKUP START");
+        // console.group("📞 API: EMPLOYEE DETAILS LOOKUP START");
 
         if (typeof empSupabase === 'undefined' || !empSupabase) {
             console.error("❌ [API: EMP DETAILS] Supabase client is not defined/configured.");
@@ -334,8 +334,8 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
             dbPhoneNumber = '+' + dbPhoneNumber;
         }
 
-        console.log(`🔎 [API: EMP DETAILS] Raw Input: "${mobile_number}". Database Key: "${dbPhoneNumber}"`);
-        console.log(`📡 [API: EMP DETAILS] Querying 'users' table for mobile_number = '${dbPhoneNumber}'...`);
+        // console.log(`🔎 [API: EMP DETAILS] Raw Input: "${mobile_number}". Database Key: "${dbPhoneNumber}"`);
+        // console.log(`📡 [API: EMP DETAILS] Querying 'users' table for mobile_number = '${dbPhoneNumber}'...`);
         
         const { data, error } = await empSupabase
             .from('users')
@@ -356,7 +356,7 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
         }
         
         const employee = data[0];
-        console.log(`✅ [API: EMP DETAILS] Match Found! UID: ${employee.uid}`);
+        // console.log(`✅ [API: EMP DETAILS] Match Found! UID: ${employee.uid}`);
         
         res.status(200).json({
             success: true,
@@ -380,7 +380,7 @@ exports.getEmployeeDetailsByMobile = async (req, res) => {
  * Fetches active dispatch by user ID
  */
 exports.getActiveDispatchByUserId = async (req, res) => {
-    console.log("📞 API: ACTIVE DISPATCH LOOKUP ATTEMPT");
+    // console.log("📞 API: ACTIVE DISPATCH LOOKUP ATTEMPT");
     
     try {
         console.group("📞 API: ACTIVE DISPATCH LOOKUP START");
@@ -398,10 +398,10 @@ exports.getActiveDispatchByUserId = async (req, res) => {
             return res.status(400).json({ message: 'Missing user_id query parameter.' });
         }
 
-        console.log(`🔎 [API: DISPATCH DETAILS] Target Employee user_id: ${user_id}`);
+        // console.log(`🔎 [API: DISPATCH DETAILS] Target Employee user_id: ${user_id}`);
         
         const requiredStatus = 'Assigned';
-        console.log(`📡 [API: DISPATCH DETAILS] Querying 'dispatch' table for user_id = '${user_id}'. Required status: '${requiredStatus}'`);
+        // console.log(`📡 [API: DISPATCH DETAILS] Querying 'dispatch' table for user_id = '${user_id}'. Required status: '${requiredStatus}'`);
 
         const { data, error } = await empSupabase
             .from('dispatch')
@@ -418,7 +418,7 @@ exports.getActiveDispatchByUserId = async (req, res) => {
         }
 
         if (!data || data.length === 0) {
-            console.log("ℹ️ [API: DISPATCH DETAILS] No matching dispatch record found.");
+            // console.log("ℹ️ [API: DISPATCH DETAILS] No matching dispatch record found.");
             console.groupEnd();
             return res.status(200).json({ 
                 message: 'No active dispatch found for this employee.',
@@ -427,7 +427,7 @@ exports.getActiveDispatchByUserId = async (req, res) => {
         }
 
         const dispatchRecord = data[0];
-        console.log(`✅ [API: DISPATCH DETAILS] Found active Order ID: ${dispatchRecord.order_id}, Status: ${dispatchRecord.order_status}`);
+        // console.log(`✅ [API: DISPATCH DETAILS] Found active Order ID: ${dispatchRecord.order_id}, Status: ${dispatchRecord.order_status}`);
         
         res.status(200).json({
             success: true,
@@ -446,7 +446,7 @@ exports.getActiveDispatchByUserId = async (req, res) => {
  * Cancels an active dispatch order
  */
 exports.cancelActiveDispatch = async (req, res) => {
-    console.log("📞 API: CANCEL DISPATCH ATTEMPT");
+    // console.log("📞 API: CANCEL DISPATCH ATTEMPT");
 
     try {
         const { order_id, cancellation_reason } = req.body;
@@ -459,7 +459,7 @@ exports.cancelActiveDispatch = async (req, res) => {
             return res.status(400).json({ message: 'Missing order_id or cancellation_reason.' });
         }
 
-        console.log(`To Cancel: Order #${order_id}. Reason: ${cancellation_reason}`);
+        // console.log(`To Cancel: Order #${order_id}. Reason: ${cancellation_reason}`);
 
         const { data: currentData, error: fetchError } = await empSupabase
             .from('dispatch')
@@ -489,7 +489,7 @@ exports.cancelActiveDispatch = async (req, res) => {
             return res.status(500).json({ message: 'Failed to update order status.', details: error.message });
         }
 
-        console.log(`✅ Order #${order_id} marked as Cancelled.`);
+        // console.log(`✅ Order #${order_id} marked as Cancelled.`);
         
         res.status(200).json({ 
             success: true, 
@@ -515,7 +515,7 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
     
     const dbPhoneNumber = String(phoneNumber).replace(/[^0-9]/g, '');
     
-    console.log(`🔎 [MEMBER ID & NAME LOOKUP START] Searching for: "${dbPhoneNumber}"`);
+    // console.log(`🔎 [MEMBER ID & NAME LOOKUP START] Searching for: "${dbPhoneNumber}"`);
     
     try {
         const { data, error } = await supabase
@@ -1372,4 +1372,5 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
 
