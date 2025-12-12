@@ -515,7 +515,7 @@ exports.getMemberIdByPhoneNumber = async (req, res) => {
     
     const dbPhoneNumber = String(phoneNumber).replace(/[^0-9]/g, '');
     
-    // console.log(`🔎 [MEMBER ID & NAME LOOKUP START] Searching for: "${dbPhoneNumber}"`);
+    console.log(`🔎 [MEMBER ID & NAME LOOKUP START] Searching for: "${dbPhoneNumber}"`);
     
     try {
         const { data, error } = await supabase
@@ -1372,5 +1372,3 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
-
-
