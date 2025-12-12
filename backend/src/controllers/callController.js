@@ -969,7 +969,7 @@ exports.dispatchServiceman = async (req, res) => {
             console.log("✅ [EMPLOYEE DB] Dispatch record updated for scheduled order.");
 
         } else if (isAppOrderUpdate) {
-            // APP ORDER: Insert NEW dispatch record (no pre-existing record)
+            // APP ORDER: Insert NEW dispatch record (or update if exists - UPSERT)
             let enhancedOrderRequest = order_request;
             if (selected_subcategories && selected_subcategories.length > 0) {
                 enhancedOrderRequest = `${order_request} | Requested Services: ${selected_subcategories.join(', ')}`;
@@ -990,17 +990,23 @@ exports.dispatchServiceman = async (req, res) => {
                 scheduled_time: null
             };
 
-            const { error: empInsertError } = await empSupabase
-                .from('dispatch')
-                .insert([employeeDbData]);
+            console.log(`📝 [EMPLOYEE DB] Attempting UPSERT for app order: ${order_id}`);
 
-            if (empInsertError) {
-                console.error("❌ [EMPLOYEE DB INSERT ERROR]", empInsertError.message);
+            // 🔥 FIX: Use UPSERT to handle potential duplicates
+            const { error: empUpsertError } = await empSupabase
+                .from('dispatch')
+                .upsert(employeeDbData, { 
+                    onConflict: 'order_id',
+                    ignoreDuplicates: false 
+                });
+
+            if (empUpsertError) {
+                console.error("❌ [EMPLOYEE DB UPSERT ERROR]", empUpsertError.message);
                 console.groupEnd();
-                return res.status(500).json({ message: 'Failed to insert into Dispatch table for app order.' });
+                return res.status(500).json({ message: 'Failed to upsert into Dispatch table for app order.' });
             }
 
-            console.log("✅ [EMPLOYEE DB] Dispatch record created for app order.");
+            console.log("✅ [EMPLOYEE DB] Dispatch record created/updated for app order.");
 
         } else {
             // NEW ORDER: Insert dispatch record
