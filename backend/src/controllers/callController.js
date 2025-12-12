@@ -947,7 +947,8 @@ exports.dispatchServiceman = async (req, res) => {
         }
 
         // Employee DB (Dispatch Table) - UPDATE or INSERT
-        if (isScheduledUpdate || isAppOrderUpdate) {
+        if (isScheduledUpdate) {
+            // SCHEDULED ORDER: Update existing dispatch record
             const updateData = {
                 user_id: user_id,
                 order_status: 'Assigned',
@@ -965,9 +966,44 @@ exports.dispatchServiceman = async (req, res) => {
                 return res.status(500).json({ message: 'Failed to update Dispatch table.' });
             }
 
-            console.log("✅ [EMPLOYEE DB] Dispatch record updated.");
+            console.log("✅ [EMPLOYEE DB] Dispatch record updated for scheduled order.");
+
+        } else if (isAppOrderUpdate) {
+            // APP ORDER: Insert NEW dispatch record (no pre-existing record)
+            let enhancedOrderRequest = order_request;
+            if (selected_subcategories && selected_subcategories.length > 0) {
+                enhancedOrderRequest = `${order_request} | Requested Services: ${selected_subcategories.join(', ')}`;
+            }
+
+            const employeeDbData = {
+                order_id,
+                user_id: user_id,
+                category,
+                request_address,
+                order_status: 'Assigned',
+                order_request: enhancedOrderRequest,
+                phone_number,
+                ticket_id: ticket_id || 'APP_ORDER',
+                dispatched_at: new Date().toISOString(),
+                customer_name: resolvedCustomerName,
+                admin_id: admin_id,
+                scheduled_time: null
+            };
+
+            const { error: empInsertError } = await empSupabase
+                .from('dispatch')
+                .insert([employeeDbData]);
+
+            if (empInsertError) {
+                console.error("❌ [EMPLOYEE DB INSERT ERROR]", empInsertError.message);
+                console.groupEnd();
+                return res.status(500).json({ message: 'Failed to insert into Dispatch table for app order.' });
+            }
+
+            console.log("✅ [EMPLOYEE DB] Dispatch record created for app order.");
 
         } else {
+            // NEW ORDER: Insert dispatch record
             let enhancedOrderRequest = order_request;
             if (selected_subcategories && selected_subcategories.length > 0) {
                 enhancedOrderRequest = `${order_request} | Requested Services: ${selected_subcategories.join(', ')}`;
@@ -1005,8 +1041,8 @@ exports.dispatchServiceman = async (req, res) => {
         const currentTimestamp = new Date().toISOString();
         const targetDate = scheduled_time ? new Date(scheduled_time).toISOString() : currentTimestamp;
 
-        if (isScheduledUpdate || isAppOrderUpdate) {
-            // 🚀 UPDATE: For app orders, change status from "Placing" to "Assigned"
+        if (isScheduledUpdate) {
+            // SCHEDULED ORDER: Update existing order
             const orderUpdateData = {
                 order_status: 'Assigned',
                 updated_at: currentTimestamp,
@@ -1026,9 +1062,44 @@ exports.dispatchServiceman = async (req, res) => {
                 });
             }
 
-            console.log("✅ [MAIN DB] Order status updated to Assigned.");
+            console.log("✅ [MAIN DB] Scheduled order status updated to Assigned.");
+
+        } else if (isAppOrderUpdate) {
+            // APP ORDER: Update existing order from "Placing" to "Assigned"
+            const orderUpdateData = {
+                order_status: 'Assigned',
+                updated_at: currentTimestamp,
+            };
+
+            console.log(`🔄 [MAIN DB] Updating app order ${order_id} from Placing to Assigned...`);
+
+            const { data: updatedOrder, error: orderUpdateError } = await supabase
+                .from('Order')
+                .update(orderUpdateData)
+                .eq('order_id', order_id)
+                .select();
+
+            if (orderUpdateError) {
+                console.error("❌ [MAIN DB APP ORDER UPDATE ERROR]", orderUpdateError.message);
+                console.groupEnd();
+                return res.status(500).json({
+                    message: 'Dispatch created, but app order status update failed.',
+                    details: orderUpdateError.message
+                });
+            }
+
+            if (!updatedOrder || updatedOrder.length === 0) {
+                console.error("⚠️ [MAIN DB] No rows updated. Order may not exist or RLS policy blocked update.");
+                console.groupEnd();
+                return res.status(404).json({
+                    message: 'Order not found or update blocked.',
+                });
+            }
+
+            console.log("✅ [MAIN DB] App order status updated to Assigned:", updatedOrder[0]);
 
         } else {
+            // NEW ORDER: Insert new order record
             const subcategoryString = selected_subcategories && selected_subcategories.length > 0
                 ? selected_subcategories.join(', ')
                 : category;
@@ -1301,3 +1372,4 @@ exports.cancelOrder = async (req, res) => {
         res.status(500).json({ message: "Server error during cancellation." });
     }
 };
+
