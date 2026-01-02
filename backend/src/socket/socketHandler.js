@@ -29,7 +29,7 @@ exports.setupSocket = (server) => {
       // ---------------------------------------------------------
       // TEST SCENARIOS (Change this number to test different cases)
       // ---------------------------------------------------------
-      const testNumber = "+91987657777"; 
+      const testNumber = "919812300001"; 
       
       console.log(`\n--- [TEST LOOP START] Testing Number: ${testNumber} ---`);
 
@@ -72,6 +72,7 @@ exports.setupSocket = (server) => {
 };
 
 exports.io = () => ioInstance;
+
 
 
 
